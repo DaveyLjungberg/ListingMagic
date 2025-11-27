@@ -8,6 +8,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { PublicRemarksRequest, PublicRemarksResponse, ErrorResponse } from "@/types/api";
 
+// Route segment config - increase body size limit for base64 images
+export const maxDuration = 60; // 60 seconds timeout
+export const dynamic = "force-dynamic";
+
 const BACKEND_URL = process.env.PYTHON_BACKEND_URL || "http://localhost:8000";
 
 export async function POST(request: NextRequest) {

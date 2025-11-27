@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     anthropic_model: str = Field(default="claude-sonnet-4-20250514", alias="ANTHROPIC_MODEL")
     gemini_model: str = Field(default="gemini-3-pro-latest", alias="GEMINI_MODEL")
 
-    # CORS
+    # CORS - supports wildcards for Vercel preview deployments
     allowed_origins: str = Field(
-        default="http://localhost:3000,https://listingmagic.com",
+        default="http://localhost:3000,http://localhost:3001,https://listing-magic.vercel.app,https://*.vercel.app,https://listingmagic.com,https://www.listingmagic.com",
         alias="ALLOWED_ORIGINS"
     )
 

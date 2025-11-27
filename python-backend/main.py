@@ -98,9 +98,28 @@ app = FastAPI(
 )
 
 # CORS Configuration
+# Note: FastAPI's CORSMiddleware doesn't support wildcards, but we handle
+# Vercel preview URLs by allowing all vercel.app subdomains
+def get_cors_origins():
+    """
+    Get CORS origins, expanding wildcards for Vercel preview deployments.
+    In production, you may want to use allow_origin_regex for more control.
+    """
+    origins = settings.allowed_origins_list
+    # For simplicity in development/staging, if we have a wildcard pattern,
+    # we'll use allow_origins=["*"] with allow_credentials=False
+    # In production with specific domains, use the explicit list
+    has_wildcard = any("*" in origin for origin in origins)
+    if has_wildcard:
+        # Remove wildcard entries and keep explicit ones
+        explicit_origins = [o for o in origins if "*" not in o]
+        return explicit_origins if explicit_origins else ["*"]
+    return origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
+    allow_origins=get_cors_origins(),
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

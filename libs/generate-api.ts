@@ -18,58 +18,127 @@ import type {
 } from "@/types/api";
 
 // =============================================================================
-// Image Conversion
+// Image Compression & Conversion
 // =============================================================================
 
+// Configuration for image compression
+const IMAGE_CONFIG = {
+  maxWidth: 1024,        // Max width in pixels
+  maxHeight: 1024,       // Max height in pixels
+  quality: 0.8,          // JPEG quality (0-1)
+  maxImages: 5,          // Maximum number of images to process
+  outputType: "image/jpeg" as const,
+};
+
 /**
- * Convert a File to base64 string
+ * Load an image file into an HTMLImageElement
  */
-export async function convertImageToBase64(file: File): Promise<string> {
+function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
+    img.src = URL.createObjectURL(file);
   });
 }
 
 /**
+ * Compress and resize an image using Canvas API
+ * Returns base64 string (without data URL prefix)
+ */
+export async function compressImage(file: File): Promise<string> {
+  const img = await loadImage(file);
+
+  // Calculate new dimensions while maintaining aspect ratio
+  let { width, height } = img;
+
+  if (width > IMAGE_CONFIG.maxWidth || height > IMAGE_CONFIG.maxHeight) {
+    const ratio = Math.min(
+      IMAGE_CONFIG.maxWidth / width,
+      IMAGE_CONFIG.maxHeight / height
+    );
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+
+  // Create canvas and draw resized image
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Failed to get canvas context");
+  }
+
+  // Use better image smoothing for quality
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  // Draw the image
+  ctx.drawImage(img, 0, 0, width, height);
+
+  // Clean up object URL
+  URL.revokeObjectURL(img.src);
+
+  // Convert to base64 JPEG
+  const dataUrl = canvas.toDataURL(IMAGE_CONFIG.outputType, IMAGE_CONFIG.quality);
+
+  // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+  const base64 = dataUrl.split(",")[1];
+
+  console.log(
+    `Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB -> ${(base64.length * 0.75 / 1024).toFixed(0)}KB (${width}x${height})`
+  );
+
+  return base64;
+}
+
+/**
+ * Convert a File to base64 string (with compression)
+ */
+export async function convertImageToBase64(file: File): Promise<string> {
+  return compressImage(file);
+}
+
+/**
  * Convert PhotoData array to ImageInput array for API requests
- *
- * NOTE: Currently returns empty array to test backend without large payloads.
- * TODO: Re-enable image conversion once payload size issue is resolved.
+ * Compresses images and limits to max 5 images
  */
 export async function convertPhotosToImageInputs(
   photos: PhotoData[]
 ): Promise<ImageInput[]> {
-  // TEMPORARY: Skip image conversion to test backend integration
-  // This avoids 413 Payload Too Large errors
-  console.log(`Skipping conversion of ${photos.length} photos (testing mode)`);
-  return [];
+  // Limit number of images
+  const photosToProcess = photos.slice(0, IMAGE_CONFIG.maxImages);
 
-  /* ORIGINAL CODE - Re-enable when ready for images:
+  if (photos.length > IMAGE_CONFIG.maxImages) {
+    console.warn(
+      `Limiting to ${IMAGE_CONFIG.maxImages} images (${photos.length} provided)`
+    );
+  }
+
   const imageInputs: ImageInput[] = [];
 
-  for (const photo of photos) {
+  for (const photo of photosToProcess) {
     try {
-      const base64 = await convertImageToBase64(photo.file);
+      const base64 = await compressImage(photo.file);
       imageInputs.push({
         base64,
         filename: photo.name,
-        content_type: photo.file.type,
+        content_type: IMAGE_CONFIG.outputType,
       });
     } catch (error) {
       console.error(`Failed to convert photo ${photo.name}:`, error);
     }
   }
 
+  console.log(
+    `Processed ${imageInputs.length} images, total payload: ${(
+      imageInputs.reduce((sum, img) => sum + (img.base64?.length || 0), 0) * 0.75 / 1024 / 1024
+    ).toFixed(2)}MB`
+  );
+
   return imageInputs;
-  */
 }
 
 // =============================================================================

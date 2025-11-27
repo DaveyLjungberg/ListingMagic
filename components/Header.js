@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
 import ButtonSignin from "./ButtonSignin";
 import logo from "@/app/icon.png";
 import config from "@/config";
 
-const links = [
+const publicLinks = [
   {
     href: "/#pricing",
     label: "Pricing",
@@ -23,13 +24,24 @@ const links = [
   },
 ];
 
+const authenticatedLinks = [
+  {
+    href: "/dashboard/generate",
+    label: "Dashboard",
+  },
+];
+
 const cta = <ButtonSignin extraStyle="btn-primary" />;
 
 // A header with a logo on the left, links in the center (like Pricing, etc...), and a CTA (like Get Started or Login) on the right.
 // The header is responsive, and on mobile, the links are hidden behind a burger button.
 const Header = () => {
   const searchParams = useSearchParams();
+  const { status } = useSession();
   const [isOpen, setIsOpen] = useState(false);
+
+  // Show different links based on auth status
+  const links = status === "authenticated" ? authenticatedLinks : publicLinks;
 
   // setIsOpen(false) when the route changes (i.e: when the user clicks on a link on mobile)
   useEffect(() => {

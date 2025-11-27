@@ -1,0 +1,39 @@
+# Listing Magic Python Backend
+# FastAPI + Three AI Models Architecture
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# AI Services
+openai>=1.0.0           # GPT-4.1 Vision - listing descriptions + photo analysis
+anthropic>=0.18.0       # Claude Sonnet 4.5 - video walk-thru scripts
+google-generativeai>=0.8.0  # Gemini 3 Pro - features & RESO data
+
+# Video Generation
+moviepy>=1.0.3
+
+# Image Processing
+pillow>=10.0.0
+
+# Configuration & Environment
+python-dotenv>=1.0.0
+
+# HTTP Client
+httpx>=0.25.0
+
+# Retry Logic
+tenacity>=8.2.0
+
+# Data Validation
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Utilities
+python-dateutil>=2.8.0
+uuid6>=2024.1.12
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

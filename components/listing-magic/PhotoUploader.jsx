@@ -1,15 +1,33 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 
-const PhotoUploader = () => {
+const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => {
   const [photos, setPhotos] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    getPhotos: () => photos,
+    clearPhotos: () => {
+      photos.forEach(photo => URL.revokeObjectURL(photo.preview));
+      setPhotos([]);
+    }
+  }));
+
+  // Notify parent of photo changes
+  useEffect(() => {
+    if (onPhotosChange) {
+      onPhotosChange(photos);
+    }
+  }, [photos, onPhotosChange]);
+
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
-    setIsDragging(true);
-  }, []);
+    if (!disabled) {
+      setIsDragging(true);
+    }
+  }, [disabled]);
 
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
@@ -19,6 +37,8 @@ const PhotoUploader = () => {
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     setIsDragging(false);
+
+    if (disabled) return;
 
     const files = Array.from(e.dataTransfer.files).filter(file =>
       file.type.startsWith("image/")
@@ -32,9 +52,11 @@ const PhotoUploader = () => {
     }));
 
     setPhotos(prev => [...prev, ...newPhotos]);
-  }, []);
+  }, [disabled]);
 
   const handleFileSelect = useCallback((e) => {
+    if (disabled) return;
+
     const files = Array.from(e.target.files).filter(file =>
       file.type.startsWith("image/")
     );
@@ -47,9 +69,11 @@ const PhotoUploader = () => {
     }));
 
     setPhotos(prev => [...prev, ...newPhotos]);
-  }, []);
+  }, [disabled]);
 
   const removePhoto = useCallback((id) => {
+    if (disabled) return;
+
     setPhotos(prev => {
       const photo = prev.find(p => p.id === id);
       if (photo) {
@@ -57,10 +81,10 @@ const PhotoUploader = () => {
       }
       return prev.filter(p => p.id !== id);
     });
-  }, []);
+  }, [disabled]);
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>
       <label className="block text-sm font-medium text-base-content/70 mb-2">
         Property Photos
       </label>
@@ -77,6 +101,7 @@ const PhotoUploader = () => {
             ? "border-primary bg-primary/5 scale-[1.02]"
             : "border-base-300 hover:border-primary/50 hover:bg-base-200/50"
           }
+          ${disabled ? 'cursor-not-allowed' : ''}
         `}
       >
         <input
@@ -84,7 +109,8 @@ const PhotoUploader = () => {
           multiple
           accept="image/*"
           onChange={handleFileSelect}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          disabled={disabled}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
         />
 
         <div className="flex flex-col items-center justify-center text-center space-y-3">
@@ -138,27 +164,29 @@ const PhotoUploader = () => {
               />
 
               {/* Overlay on hover */}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <button
-                  onClick={() => removePhoto(photo.id)}
-                  className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2}
-                    stroke="currentColor"
-                    className="w-4 h-4 text-error"
+              {!disabled && (
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <button
+                    onClick={() => removePhoto(photo.id)}
+                    className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                      className="w-4 h-4 text-error"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -171,6 +199,8 @@ const PhotoUploader = () => {
       )}
     </div>
   );
-};
+});
+
+PhotoUploader.displayName = "PhotoUploader";
 
 export default PhotoUploader;

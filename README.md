@@ -40,7 +40,14 @@ listing-magic/
 ├── app/                          # Next.js App Router
 │   ├── dashboard/
 │   │   └── generate/            # Main generation UI
-│   └── api/                     # API routes (frontend)
+│   └── api/                     # Next.js API routes (proxy to Python)
+│       ├── generate-features/   # Features generation endpoint
+│       ├── generate-public-remarks/  # Listing description endpoint
+│       └── generate-walkthru-script/ # Video script endpoint
+├── types/
+│   └── api.ts                   # TypeScript interfaces for API
+├── lib/
+│   └── generate-api.ts          # API helper functions
 ├── components/
 │   └── listing-magic/           # Custom components
 │       ├── PhotoUploader.jsx    # Drag-drop photo upload
@@ -127,8 +134,8 @@ Swagger docs at `http://localhost:8000/docs`
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-nextauth-secret
 
-# Backend API
-NEXT_PUBLIC_API_URL=http://localhost:8000
+# Python Backend API (used by Next.js API routes)
+PYTHON_BACKEND_URL=http://localhost:8000
 
 # Optional: MongoDB for user data
 MONGODB_URI=mongodb://localhost:27017/listing-magic

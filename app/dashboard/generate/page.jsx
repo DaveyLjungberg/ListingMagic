@@ -1,27 +1,248 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import toast from "react-hot-toast";
 import ButtonAccount from "@/components/ButtonAccount";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import GeneratedSection from "@/components/listing-magic/GeneratedSection";
 import MLSPlaceholder from "@/components/listing-magic/MLSPlaceholder";
-
-// Placeholder content for generated sections
-const PLACEHOLDER_TEXT = {
-  publicRemarks: `Welcome to this stunning 4-bedroom, 3-bathroom residence nestled in the heart of a sought-after neighborhood. This meticulously maintained home offers over 2,400 square feet of thoughtfully designed living space, perfect for modern family life.
-
-Step inside to discover an open-concept floor plan bathed in natural light, featuring soaring ceilings and elegant hardwood floors throughout the main level. The gourmet kitchen is a chef's dream, boasting granite countertops, stainless steel appliances, and a generous center island ideal for casual dining and entertaining.
-
-The primary suite serves as a private retreat, complete with a spa-like ensuite bathroom and walk-in closet. Three additional bedrooms provide ample space for family, guests, or a home office. The landscaped backyard offers a peaceful outdoor oasis, perfect for relaxation or hosting gatherings.`,
-
-  walkthruScript: null, // Will show empty state
-
-  featuresSheet: null // Will show empty state
-};
+import {
+  generateFeatures,
+  generateWalkthruScript,
+  generatePublicRemarks,
+  generateAllContentMock,
+  convertPhotosToImageInputs,
+  formatGenerationTime,
+  formatCost,
+  copyToClipboard,
+  getFriendlyErrorMessage,
+  isRateLimitError,
+} from "@/libs/generate-api";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
+
+  // Refs for child components
+  const photoUploaderRef = useRef(null);
+  const addressInputRef = useRef(null);
+
+  // Form state
+  const [photos, setPhotos] = useState([]);
+  const [address, setAddress] = useState(null);
+
+  // Generation state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ step: 0, total: 3, label: "" });
+  const [generationState, setGenerationState] = useState({
+    publicRemarks: { status: "idle", data: null, error: null },
+    walkthruScript: { status: "idle", data: null, error: null },
+    features: { status: "idle", data: null, error: null },
+  });
+
+  // Handle photo changes
+  const handlePhotosChange = useCallback((newPhotos) => {
+    setPhotos(newPhotos);
+  }, []);
+
+  // Handle address changes
+  const handleAddressChange = useCallback((newAddress) => {
+    setAddress(newAddress);
+  }, []);
+
+  // Check if form is ready
+  const isFormReady = photos.length > 0 && address?.street && address?.zip_code?.length === 5;
+
+  // Handle generate all content - SEQUENTIAL to avoid rate limits
+  const handleGenerateAll = async () => {
+    if (!isFormReady) {
+      toast.error("Please upload photos and enter a complete address");
+      return;
+    }
+
+    setIsGenerating(true);
+    let successCount = 0;
+    let rateLimitHit = false;
+
+    // Reset all states
+    setGenerationState({
+      publicRemarks: { status: "idle", data: null, error: null },
+      walkthruScript: { status: "idle", data: null, error: null },
+      features: { status: "idle", data: null, error: null },
+    });
+
+    try {
+      // Convert photos to base64
+      setGenerationProgress({ step: 0, total: 3, label: "Preparing photos..." });
+      toast.loading("Preparing photos...", { id: "generating" });
+      const imageInputs = await convertPhotosToImageInputs(photos);
+
+      // Build property details
+      const propertyDetails = {
+        address,
+        photos: imageInputs,
+        property_type: "single_family",
+      };
+
+      // STEP 1: Features (Gemini - fast & cheap)
+      setGenerationProgress({ step: 1, total: 3, label: "Generating features..." });
+      toast.loading("Generating features... (1/3)", { id: "generating" });
+      setGenerationState(prev => ({
+        ...prev,
+        features: { status: "loading", data: null, error: null },
+      }));
+
+      try {
+        const featuresResult = await generateFeatures(propertyDetails);
+        setGenerationState(prev => ({
+          ...prev,
+          features: { status: "success", data: featuresResult, error: null },
+        }));
+        successCount++;
+      } catch (error) {
+        const friendlyError = getFriendlyErrorMessage(error);
+        setGenerationState(prev => ({
+          ...prev,
+          features: { status: "error", data: null, error: friendlyError },
+        }));
+        if (isRateLimitError(error)) {
+          rateLimitHit = true;
+        }
+      }
+
+      // STEP 2: Walk-thru Script (Claude) - only if no rate limit
+      if (!rateLimitHit) {
+        setGenerationProgress({ step: 2, total: 3, label: "Generating walk-thru script..." });
+        toast.loading("Generating walk-thru script... (2/3)", { id: "generating" });
+        setGenerationState(prev => ({
+          ...prev,
+          walkthruScript: { status: "loading", data: null, error: null },
+        }));
+
+        try {
+          const walkthruResult = await generateWalkthruScript(propertyDetails);
+          setGenerationState(prev => ({
+            ...prev,
+            walkthruScript: { status: "success", data: walkthruResult, error: null },
+          }));
+          successCount++;
+        } catch (error) {
+          const friendlyError = getFriendlyErrorMessage(error);
+          setGenerationState(prev => ({
+            ...prev,
+            walkthruScript: { status: "error", data: null, error: friendlyError },
+          }));
+          if (isRateLimitError(error)) {
+            rateLimitHit = true;
+          }
+        }
+      }
+
+      // STEP 3: Public Remarks (GPT-4.1 - might hit rate limits) - only if no rate limit
+      if (!rateLimitHit) {
+        setGenerationProgress({ step: 3, total: 3, label: "Generating public remarks..." });
+        toast.loading("Generating public remarks... (3/3)", { id: "generating" });
+        setGenerationState(prev => ({
+          ...prev,
+          publicRemarks: { status: "loading", data: null, error: null },
+        }));
+
+        try {
+          const publicRemarksResult = await generatePublicRemarks(propertyDetails);
+          setGenerationState(prev => ({
+            ...prev,
+            publicRemarks: { status: "success", data: publicRemarksResult, error: null },
+          }));
+          successCount++;
+        } catch (error) {
+          const friendlyError = getFriendlyErrorMessage(error);
+          setGenerationState(prev => ({
+            ...prev,
+            publicRemarks: { status: "error", data: null, error: friendlyError },
+          }));
+          if (isRateLimitError(error)) {
+            rateLimitHit = true;
+          }
+        }
+      }
+
+      // Show appropriate toast
+      if (rateLimitHit) {
+        toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating" });
+      } else if (successCount === 3) {
+        toast.success("All content generated successfully!", { id: "generating" });
+      } else if (successCount > 0) {
+        toast.success(`Generated ${successCount}/3 sections`, { id: "generating" });
+      } else {
+        toast.error("Failed to generate content", { id: "generating" });
+      }
+    } catch (error) {
+      console.error("Generation error:", error);
+      const friendlyError = getFriendlyErrorMessage(error);
+      toast.error(friendlyError, { id: "generating" });
+    } finally {
+      setIsGenerating(false);
+      setGenerationProgress({ step: 0, total: 3, label: "" });
+    }
+  };
+
+  // Handle test with mock data
+  const handleTestWithMockData = async () => {
+    setIsGenerating(true);
+
+    // Set all sections to loading
+    setGenerationState({
+      publicRemarks: { status: "loading", data: null, error: null },
+      walkthruScript: { status: "loading", data: null, error: null },
+      features: { status: "loading", data: null, error: null },
+    });
+
+    toast.loading("Testing with mock data...", { id: "generating" });
+
+    try {
+      const result = await generateAllContentMock();
+
+      setGenerationState({
+        publicRemarks: { status: "success", data: result.publicRemarks, error: null },
+        walkthruScript: { status: "success", data: result.walkthruScript, error: null },
+        features: { status: "success", data: result.features, error: null },
+      });
+
+      toast.success("Mock content generated!", { id: "generating" });
+    } catch (error) {
+      console.error("Mock generation error:", error);
+      toast.error("Mock generation failed", { id: "generating" });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Handle copy to clipboard
+  const handleCopy = async (text) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      toast.success("Copied to clipboard!");
+    } else {
+      toast.error("Failed to copy");
+    }
+    return success;
+  };
+
+  // Format features for display
+  const formatFeaturesText = (featuresData) => {
+    if (!featuresData) return null;
+
+    if (featuresData.categorized_features?.length > 0) {
+      return featuresData.categorized_features
+        .map((category) => {
+          const features = category.features.map((f) => `  - ${f}`).join("\n");
+          return `${category.name}:\n${features}`;
+        })
+        .join("\n\n");
+    }
+
+    return featuresData.features_list?.join("\n") || null;
+  };
 
   // Button configurations for each section
   const publicRemarksButtons = [
@@ -33,7 +254,7 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate public remarks")
+      onClick: () => console.log("Regenerate public remarks"),
     },
     {
       label: "Add to MLS Data",
@@ -43,8 +264,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
       ),
-      onClick: () => console.log("Add to MLS")
-    }
+      onClick: () => console.log("Add to MLS"),
+    },
   ];
 
   const walkthruButtons = [
@@ -56,7 +277,7 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate walkthru")
+      onClick: () => console.log("Regenerate walkthru"),
     },
     {
       label: "Add to MLS Data",
@@ -66,7 +287,7 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
       ),
-      onClick: () => console.log("Add to MLS")
+      onClick: () => console.log("Add to MLS"),
     },
     {
       label: "Generate Video",
@@ -76,8 +297,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
         </svg>
       ),
-      onClick: () => console.log("Generate video")
-    }
+      onClick: () => console.log("Generate video"),
+    },
   ];
 
   const featuresButtons = [
@@ -89,7 +310,7 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate features")
+      onClick: () => console.log("Regenerate features"),
     },
     {
       label: "Add to MLS Data",
@@ -99,8 +320,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
       ),
-      onClick: () => console.log("Add to MLS")
-    }
+      onClick: () => console.log("Add to MLS"),
+    },
   ];
 
   return (
@@ -180,22 +401,67 @@ export default function GeneratePage() {
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                  <PhotoUploader />
+                  <PhotoUploader
+                    ref={photoUploaderRef}
+                    onPhotosChange={handlePhotosChange}
+                    disabled={isGenerating}
+                  />
                   <div className="border-t border-base-200 pt-6">
-                    <AddressInput />
+                    <AddressInput
+                      ref={addressInputRef}
+                      onAddressChange={handleAddressChange}
+                      disabled={isGenerating}
+                    />
                   </div>
 
                   {/* Generate All Button */}
-                  <div className="border-t border-base-200 pt-6">
-                    <button className="btn btn-primary w-full gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-                      </svg>
-                      Generate All Content
+                  <div className="border-t border-base-200 pt-6 space-y-3">
+                    <button
+                      onClick={handleGenerateAll}
+                      disabled={isGenerating || !isFormReady}
+                      className="btn btn-primary w-full gap-2"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <span className="loading loading-spinner loading-sm"></span>
+                          <span className="flex flex-col items-start">
+                            <span className="text-sm">
+                              {generationProgress.label || "Generating..."}
+                            </span>
+                            {generationProgress.step > 0 && (
+                              <span className="text-xs opacity-70">
+                                Step {generationProgress.step} of {generationProgress.total}
+                              </span>
+                            )}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                          </svg>
+                          Generate All Content
+                        </>
+                      )}
                     </button>
-                    <p className="text-xs text-base-content/40 text-center mt-2">
-                      Upload photos and enter address first
-                    </p>
+
+                    {!isFormReady && (
+                      <p className="text-xs text-base-content/40 text-center">
+                        Upload photos and enter address first
+                      </p>
+                    )}
+
+                    {/* Test with Mock Data button */}
+                    <button
+                      onClick={handleTestWithMockData}
+                      disabled={isGenerating}
+                      className="btn btn-ghost btn-sm w-full gap-2 text-base-content/60"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                      </svg>
+                      Test with Mock Data
+                    </button>
                   </div>
                 </div>
               </div>
@@ -206,25 +472,64 @@ export default function GeneratePage() {
               <GeneratedSection
                 title="Public Remarks"
                 description="250-word property description for MLS listing"
-                generatedText={PLACEHOLDER_TEXT.publicRemarks}
+                generatedText={generationState.publicRemarks.data?.text}
                 buttons={publicRemarksButtons}
-                defaultOpen={false}
+                defaultOpen={generationState.publicRemarks.status === "loading" || generationState.publicRemarks.status === "success"}
+                isLoading={generationState.publicRemarks.status === "loading"}
+                error={generationState.publicRemarks.error}
+                generationTime={
+                  generationState.publicRemarks.data?.usage?.generation_time_ms
+                    ? formatGenerationTime(generationState.publicRemarks.data.usage.generation_time_ms)
+                    : null
+                }
+                cost={
+                  generationState.publicRemarks.data?.usage?.cost_usd
+                    ? formatCost(generationState.publicRemarks.data.usage.cost_usd)
+                    : null
+                }
+                onCopy={handleCopy}
               />
 
               <GeneratedSection
                 title="Walk-thru Script"
                 description="Video narration script for property tour"
-                generatedText={PLACEHOLDER_TEXT.walkthruScript}
+                generatedText={generationState.walkthruScript.data?.script}
                 buttons={walkthruButtons}
-                defaultOpen={false}
+                defaultOpen={generationState.walkthruScript.status === "loading" || generationState.walkthruScript.status === "success"}
+                isLoading={generationState.walkthruScript.status === "loading"}
+                error={generationState.walkthruScript.error}
+                generationTime={
+                  generationState.walkthruScript.data?.usage?.generation_time_ms
+                    ? formatGenerationTime(generationState.walkthruScript.data.usage.generation_time_ms)
+                    : null
+                }
+                cost={
+                  generationState.walkthruScript.data?.usage?.cost_usd
+                    ? formatCost(generationState.walkthruScript.data.usage.cost_usd)
+                    : null
+                }
+                onCopy={handleCopy}
               />
 
               <GeneratedSection
                 title="Features Sheet"
                 description="Detailed property features and highlights"
-                generatedText={PLACEHOLDER_TEXT.featuresSheet}
+                generatedText={formatFeaturesText(generationState.features.data)}
                 buttons={featuresButtons}
-                defaultOpen={false}
+                defaultOpen={generationState.features.status === "loading" || generationState.features.status === "success"}
+                isLoading={generationState.features.status === "loading"}
+                error={generationState.features.error}
+                generationTime={
+                  generationState.features.data?.usage?.generation_time_ms
+                    ? formatGenerationTime(generationState.features.data.usage.generation_time_ms)
+                    : null
+                }
+                cost={
+                  generationState.features.data?.usage?.cost_usd
+                    ? formatCost(generationState.features.data.usage.cost_usd)
+                    : null
+                }
+                onCopy={handleCopy}
               />
             </main>
           </div>

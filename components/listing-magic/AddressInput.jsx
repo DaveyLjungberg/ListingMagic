@@ -1,14 +1,38 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 
-const AddressInput = () => {
+const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => {
   const [address, setAddress] = useState({
     street: "",
     zip: "",
     city: "",
     state: ""
   });
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    getAddress: () => ({
+      street: address.street,
+      zip_code: address.zip,
+      city: address.city || undefined,
+      state: address.state || undefined,
+    }),
+    isValid: () => Boolean(address.street && address.zip.length === 5),
+    clearAddress: () => setAddress({ street: "", zip: "", city: "", state: "" })
+  }));
+
+  // Notify parent of address changes
+  useEffect(() => {
+    if (onAddressChange) {
+      onAddressChange({
+        street: address.street,
+        zip_code: address.zip,
+        city: address.city || undefined,
+        state: address.state || undefined,
+      });
+    }
+  }, [address, onAddressChange]);
 
   // Placeholder for auto-populate functionality
   // In the future, this will call an API to get city/state from ZIP
@@ -31,7 +55,7 @@ const AddressInput = () => {
   }, [address.zip]);
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${disabled ? 'opacity-60' : ''}`}>
       <label className="block text-sm font-medium text-base-content/70 mb-2">
         Property Address
       </label>
@@ -44,7 +68,8 @@ const AddressInput = () => {
             placeholder="Street address"
             value={address.street}
             onChange={(e) => setAddress(prev => ({ ...prev, street: e.target.value }))}
-            className="input input-bordered w-full bg-base-100 focus:border-primary focus:outline-none transition-colors"
+            disabled={disabled}
+            className="input input-bordered w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
           />
         </div>
 
@@ -61,7 +86,8 @@ const AddressInput = () => {
                 setAddress(prev => ({ ...prev, zip: value }));
               }}
               maxLength={5}
-              className="input input-bordered w-full bg-base-100 focus:border-primary focus:outline-none transition-colors"
+              disabled={disabled}
+              className="input input-bordered w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
             />
           </div>
 
@@ -95,6 +121,8 @@ const AddressInput = () => {
       </div>
     </div>
   );
-};
+});
+
+AddressInput.displayName = "AddressInput";
 
 export default AddressInput;

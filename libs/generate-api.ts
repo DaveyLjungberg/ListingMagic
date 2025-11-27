@@ -40,10 +40,19 @@ export async function convertImageToBase64(file: File): Promise<string> {
 
 /**
  * Convert PhotoData array to ImageInput array for API requests
+ *
+ * NOTE: Currently returns empty array to test backend without large payloads.
+ * TODO: Re-enable image conversion once payload size issue is resolved.
  */
 export async function convertPhotosToImageInputs(
   photos: PhotoData[]
 ): Promise<ImageInput[]> {
+  // TEMPORARY: Skip image conversion to test backend integration
+  // This avoids 413 Payload Too Large errors
+  console.log(`Skipping conversion of ${photos.length} photos (testing mode)`);
+  return [];
+
+  /* ORIGINAL CODE - Re-enable when ready for images:
   const imageInputs: ImageInput[] = [];
 
   for (const photo of photos) {
@@ -60,6 +69,7 @@ export async function convertPhotosToImageInputs(
   }
 
   return imageInputs;
+  */
 }
 
 // =============================================================================

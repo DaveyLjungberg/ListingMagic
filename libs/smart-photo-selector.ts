@@ -68,7 +68,7 @@ async function compressForAnalysis(previewUrl: string): Promise<string> {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      const maxSize = 256; // Very small for analysis only
+      const maxSize = 128; // Extra tiny to stay under token limits
 
       let width = img.width;
       let height = img.height;
@@ -91,7 +91,7 @@ async function compressForAnalysis(previewUrl: string): Promise<string> {
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(img, 0, 0, width, height);
 
-      resolve(canvas.toDataURL("image/jpeg", 0.6));
+      resolve(canvas.toDataURL("image/jpeg", 0.5));
     };
     img.onerror = () => {
       // Return empty string on error

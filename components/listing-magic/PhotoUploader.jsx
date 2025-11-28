@@ -18,7 +18,8 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPho
     getPhotos: () => photos,
     clearPhotos: () => {
       photos.forEach(photo => {
-        if (photo.preview && !photo.preview.startsWith("http")) {
+        // Only revoke blob URLs for object-type photos
+        if (typeof photo !== 'string' && photo?.preview && !photo.preview.startsWith("http")) {
           URL.revokeObjectURL(photo.preview);
         }
       });
@@ -101,12 +102,22 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPho
     if (disabled) return;
 
     setPhotos(prev => {
-      const photo = prev.find(p => p.id === id);
+      // Find photo by id property or by index for URL strings
+      const photoIndex = prev.findIndex((p, idx) => {
+        if (typeof p === 'string') {
+          return `url-${idx}` === id;
+        }
+        return p.id === id;
+      });
+
+      if (photoIndex === -1) return prev;
+
+      const photo = prev[photoIndex];
       // Only revoke blob URLs, not external URLs
-      if (photo?.preview && !photo.preview.startsWith("http")) {
+      if (typeof photo !== 'string' && photo?.preview && !photo.preview.startsWith("http")) {
         URL.revokeObjectURL(photo.preview);
       }
-      return prev.filter(p => p.id !== id);
+      return prev.filter((_, idx) => idx !== photoIndex);
     });
   }, [disabled]);
 
@@ -179,43 +190,83 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPho
       {/* Photo Grid */}
       {photos.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {photos.map((photo) => (
-            <div
-              key={photo.id}
-              className="relative group aspect-square rounded-lg overflow-hidden bg-base-200"
-            >
-              <img
-                src={photo.preview}
-                alt={photo.name}
-                className="w-full h-full object-cover"
-              />
+          {photos.map((photo, index) => {
+            // Determine the image source based on photo type
+            let thumbnailSrc;
+            let photoId;
+            let photoName;
 
-              {/* Overlay on hover */}
-              {!disabled && (
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <button
-                    onClick={() => removePhoto(photo.id)}
-                    className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={2}
-                      stroke="currentColor"
-                      className="w-4 h-4 text-error"
+            if (typeof photo === 'string') {
+              // Direct URL string
+              thumbnailSrc = photo;
+              photoId = `url-${index}`;
+              photoName = `Photo ${index + 1}`;
+            } else if (photo?.preview) {
+              // Object with preview property
+              thumbnailSrc = photo.preview;
+              photoId = photo.id || `photo-${index}`;
+              photoName = photo.name || `Photo ${index + 1}`;
+            } else if (photo?.url) {
+              // Object with url property
+              thumbnailSrc = photo.url;
+              photoId = photo.id || `photo-${index}`;
+              photoName = photo.name || `Photo ${index + 1}`;
+            } else {
+              // Unknown format, skip
+              console.error('Unknown photo format:', photo);
+              return null;
+            }
+
+            return (
+              <div
+                key={photoId}
+                className="relative group aspect-square rounded-lg overflow-hidden bg-base-200"
+              >
+                <img
+                  src={thumbnailSrc}
+                  alt={photoName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    console.error('Failed to load image:', thumbnailSrc);
+                    // Show a placeholder on error
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = `
+                      <div class="w-full h-full flex items-center justify-center bg-base-300 text-base-content/50">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                        </svg>
+                      </div>
+                    `;
+                  }}
+                />
+
+                {/* Overlay on hover */}
+                {!disabled && (
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button
+                      onClick={() => removePhoto(photoId)}
+                      className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                        className="w-4 h-4 text-error"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

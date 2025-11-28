@@ -24,7 +24,21 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPho
       });
       setPhotos([]);
     },
-    setPhotos: (newPhotos) => setPhotos(newPhotos)
+    setPhotos: (newPhotos) => setPhotos(newPhotos),
+    // Load photos from URLs (for loading saved listings)
+    setPhotosFromUrls: (urls) => {
+      if (!urls || urls.length === 0) {
+        setPhotos([]);
+        return;
+      }
+      const photoObjects = urls.map((url, index) => ({
+        id: `loaded-${Date.now()}-${index}`,
+        name: `Photo ${index + 1}`,
+        preview: url,
+        file: null,
+      }));
+      setPhotos(photoObjects);
+    }
   }));
 
   // Notify parent of photo changes

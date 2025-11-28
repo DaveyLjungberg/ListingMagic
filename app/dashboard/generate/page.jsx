@@ -392,17 +392,10 @@ export default function GeneratePage() {
       });
     }
 
-    // Set photo URLs (these are Supabase storage URLs)
-    if (listing.photo_urls?.length > 0) {
+    // Set photo URLs via ref (these are Supabase storage URLs)
+    if (listing.photo_urls?.length > 0 && photoUploaderDescRef.current) {
       setPhotoUrlsDesc(listing.photo_urls);
-      // Convert URLs to photo objects for the uploader
-      const photos = listing.photo_urls.map((url, index) => ({
-        id: `loaded-${index}`,
-        name: `Photo ${index + 1}`,
-        preview: url,
-        file: null, // No file object for loaded photos
-      }));
-      setPhotosDesc(photos);
+      photoUploaderDescRef.current.setPhotosFromUrls(listing.photo_urls);
     }
 
     // Set generated content states
@@ -448,16 +441,10 @@ export default function GeneratePage() {
       });
     }
 
-    // Set photo URLs
-    if (listing.photo_urls?.length > 0) {
+    // Set photo URLs via ref
+    if (listing.photo_urls?.length > 0 && photoUploaderMLSRef.current) {
       setPhotoUrlsMLS(listing.photo_urls);
-      const photos = listing.photo_urls.map((url, index) => ({
-        id: `loaded-${index}`,
-        name: `Photo ${index + 1}`,
-        preview: url,
-        file: null,
-      }));
-      setPhotosMLS(photos);
+      photoUploaderMLSRef.current.setPhotosFromUrls(listing.photo_urls);
     }
 
     // Set MLS data

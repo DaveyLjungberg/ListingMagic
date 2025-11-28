@@ -382,9 +382,9 @@ export default function GeneratePage() {
 
   // Handle loading a previous descriptions listing
   const handleLoadDescListing = (listing) => {
-    // Set address from address_json or parse from property_address
-    if (listing.address_json) {
-      setAddressDesc({
+    // Set address via ref (to avoid circular updates)
+    if (listing.address_json && addressInputDescRef.current) {
+      addressInputDescRef.current.setAddress({
         street: listing.address_json.street,
         city: listing.address_json.city,
         state: listing.address_json.state,
@@ -438,9 +438,9 @@ export default function GeneratePage() {
 
   // Handle loading a previous MLS listing
   const handleLoadMLSListing = (listing) => {
-    // Set address from address_json
-    if (listing.address_json) {
-      setAddressMLS({
+    // Set address via ref (to avoid circular updates)
+    if (listing.address_json && addressInputMLSRef.current) {
+      addressInputMLSRef.current.setAddress({
         street: listing.address_json.street,
         city: listing.address_json.city,
         state: listing.address_json.state,
@@ -706,7 +706,6 @@ export default function GeneratePage() {
                       ref={addressInputDescRef}
                       onAddressChange={handleAddressChangeDesc}
                       disabled={isGeneratingDesc}
-                      initialAddress={addressDesc}
                     />
                   </div>
 
@@ -861,7 +860,6 @@ export default function GeneratePage() {
                       ref={addressInputMLSRef}
                       onAddressChange={handleAddressChangeMLS}
                       disabled={isGeneratingMLS}
-                      initialAddress={addressMLS}
                     />
                   </div>
 

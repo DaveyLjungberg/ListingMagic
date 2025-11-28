@@ -2,7 +2,7 @@
 
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from "react";
 
-const AddressInput = forwardRef(({ onAddressChange, disabled = false, initialAddress = null }, ref) => {
+const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => {
   const [address, setAddress] = useState({
     street: "",
     zip: "",
@@ -12,23 +12,6 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, initialAdd
   const [zipLookupStatus, setZipLookupStatus] = useState("idle"); // idle, loading, success, error
   const [zipError, setZipError] = useState(null);
   const lastLookedUpZip = useRef("");
-
-  // Sync with initialAddress when it changes (for loading previous listings)
-  useEffect(() => {
-    if (initialAddress) {
-      setAddress({
-        street: initialAddress.street || "",
-        zip: initialAddress.zip_code || "",
-        city: initialAddress.city || "",
-        state: initialAddress.state || ""
-      });
-      // Mark as already looked up to prevent overwriting loaded city/state
-      if (initialAddress.zip_code && initialAddress.city) {
-        lastLookedUpZip.current = initialAddress.zip_code;
-        setZipLookupStatus("success");
-      }
-    }
-  }, [initialAddress]);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({

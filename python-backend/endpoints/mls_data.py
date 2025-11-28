@@ -349,7 +349,11 @@ async def download_image_as_base64(url: str) -> str:
     """Download an image from URL and convert to base64."""
     async with httpx.AsyncClient() as client:
         response = await client.get(url, timeout=30.0)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to download image from {url}: {response.status_code} - {response.text}")
+            raise
         return base64.b64encode(response.content).decode("utf-8")
 
 

@@ -27,7 +27,11 @@ const publicLinks = [
 const authenticatedLinks = [
   {
     href: "/dashboard/generate",
-    label: "Dashboard",
+    label: "Generate",
+  },
+  {
+    href: "/dashboard/listings",
+    label: "My Listings",
   },
 ];
 

@@ -14,6 +14,7 @@ import {
   generateWalkthruScript,
   generatePublicRemarks,
   generateMLSData,
+  generateMLSDataWithStorage,
   generateAllContentMock,
   convertPhotosToImageInputs,
   formatGenerationTime,
@@ -296,8 +297,12 @@ export default function GeneratePage() {
       return;
     }
 
+    if (!user) {
+      toast.error("Please log in to generate MLS data");
+      return;
+    }
+
     setIsGeneratingMLS(true);
-    toast.loading(`Extracting MLS data from ${photos.length} photos with Claude...`, { id: "mls-generating" });
 
     try {
       // Format address string
@@ -305,10 +310,18 @@ export default function GeneratePage() {
         ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
         : "";
 
-      // Claude handles all photos directly - no selection needed
-      const result = await generateMLSData(photos, addressString);
-      setMlsData(result);
-      toast.success(`Extracted ${Object.keys(result.confidence_scores || {}).length} MLS fields from ${result.photos_analyzed} photos!`, { id: "mls-generating" });
+      // Upload photos to Supabase Storage first, then send URLs to Claude
+      // This bypasses Vercel's 4.5MB payload limit
+      const { mlsData, photoUrls } = await generateMLSDataWithStorage(
+        photos,
+        addressString,
+        user.id,
+        "claude",
+        (message) => toast.loading(message, { id: "mls-generating" })
+      );
+
+      setMlsData(mlsData);
+      toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
     } catch (error) {
       console.error("MLS generation error:", error);
       toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });

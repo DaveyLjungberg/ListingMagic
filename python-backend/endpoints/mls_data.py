@@ -7,6 +7,8 @@ import logging
 import time
 import json
 import os
+import httpx
+import base64
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
@@ -36,6 +38,13 @@ class RoomData(BaseModel):
 class MLSDataRequest(BaseModel):
     """Request model for MLS data extraction."""
     images: List[str] = Field(..., description="Base64 encoded images")
+    address: str = Field(..., description="Property address")
+    model: str = Field(default="claude", description="AI model: claude (default, best), gpt, or gemini")
+
+
+class MLSDataURLsRequest(BaseModel):
+    """Request model for MLS data extraction from URLs."""
+    photo_urls: List[str] = Field(..., description="Public URLs to property photos")
     address: str = Field(..., description="Property address")
     model: str = Field(default="claude", description="AI model: claude (default, best), gpt, or gemini")
 
@@ -326,6 +335,165 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
         )
     except Exception as e:
         logger.error(f"MLS extraction failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"MLS extraction failed: {str(e)}"
+        )
+
+
+# =============================================================================
+# URL-based Extraction Functions
+# =============================================================================
+
+async def download_image_as_base64(url: str) -> str:
+    """Download an image from URL and convert to base64."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=30.0)
+        response.raise_for_status()
+        return base64.b64encode(response.content).decode("utf-8")
+
+
+async def extract_with_claude_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
+    """Extract MLS data using Claude with photo URLs."""
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+    # Build content with image URLs
+    content = []
+    for url in photo_urls:
+        # Download and convert to base64 for Claude
+        try:
+            img_b64 = await download_image_as_base64(url)
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": img_b64
+                }
+            })
+        except Exception as e:
+            logger.warning(f"Failed to download image {url}: {e}")
+            continue
+
+    content.append({"type": "text", "text": prompt})
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2000,
+        messages=[{"role": "user", "content": content}]
+    )
+
+    response_text = clean_json_response(response.content[0].text)
+    return json.loads(response_text)
+
+
+async def extract_with_gpt_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
+    """Extract MLS data using GPT-4 Vision with photo URLs."""
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    # GPT-4 Vision can use URLs directly
+    content = [{"type": "text", "text": prompt}]
+    for url in photo_urls:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": url}
+        })
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": content}],
+        max_tokens=2000
+    )
+
+    response_text = clean_json_response(response.choices[0].message.content)
+    return json.loads(response_text)
+
+
+async def extract_with_gemini_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
+    """Extract MLS data using Gemini with photo URLs."""
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+
+    # Download images and convert to base64 for Gemini
+    image_parts = []
+    for url in photo_urls:
+        try:
+            img_b64 = await download_image_as_base64(url)
+            image_parts.append({
+                "mime_type": "image/jpeg",
+                "data": img_b64
+            })
+        except Exception as e:
+            logger.warning(f"Failed to download image {url}: {e}")
+            continue
+
+    response = model.generate_content([prompt] + image_parts)
+    response_text = clean_json_response(response.text)
+
+    return json.loads(response_text)
+
+
+# =============================================================================
+# URL-based Endpoint
+# =============================================================================
+
+@router.post("/api/generate-mls-data-urls", response_model=MLSDataResponse)
+async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataResponse:
+    """
+    Extract MLS fields from property photos using photo URLs.
+
+    This endpoint accepts public URLs to photos instead of base64 data,
+    which bypasses payload size limits and is more efficient for large uploads.
+
+    **Models available:**
+    - `claude` (default): Best accuracy, handles many photos well
+    - `gpt`: Good for complex photos (supports URLs directly)
+    - `gemini`: Fastest option
+    """
+    start_time = time.time()
+
+    logger.info(f"Generating MLS data from URLs for: {request.address}, model: {request.model}")
+    logger.info(f"Processing {len(request.photo_urls)} photo URLs")
+
+    try:
+        prompt = MLS_EXTRACTION_PROMPT.format(address=request.address)
+
+        # Select extraction function based on model
+        extractors = {
+            "gemini": extract_with_gemini_urls,
+            "gpt": extract_with_gpt_urls,
+            "claude": extract_with_claude_urls
+        }
+
+        if request.model not in extractors:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid model '{request.model}'. Must be one of: gemini, gpt, claude"
+            )
+
+        extractor = extractors[request.model]
+        mls_data = await extractor(request.photo_urls, prompt)
+
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # Build response
+        return MLSDataResponse(
+            success=True,
+            model_used=request.model,
+            processing_time_ms=processing_time_ms,
+            photos_analyzed=len(request.photo_urls),
+            **mls_data
+        )
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse AI response as JSON: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="AI returned invalid JSON response. Please try again."
+        )
+    except Exception as e:
+        logger.error(f"MLS extraction from URLs failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"MLS extraction failed: {str(e)}"

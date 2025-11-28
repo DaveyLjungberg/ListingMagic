@@ -19,6 +19,7 @@ import type {
   MLSDataResponse,
   MLSModel,
 } from "@/types/api";
+import { uploadPhotosToStorage } from "./supabase-storage-upload";
 
 // =============================================================================
 // Image Compression & Conversion
@@ -686,4 +687,77 @@ export async function generateMLSDataMock(): Promise<MLSDataResponse> {
   // Simulate network delay
   await new Promise((resolve) => setTimeout(resolve, 2500));
   return MOCK_MLS_DATA;
+}
+
+// =============================================================================
+// MLS Data Extraction with Supabase Storage (URL-based)
+// =============================================================================
+
+/**
+ * Generate MLS data from photo URLs (bypasses payload limits)
+ * @param photoUrls - Array of public URLs to photos in Supabase Storage
+ * @param address - Full property address string
+ * @param model - AI model to use: 'claude' (default), 'gpt', or 'gemini'
+ */
+export async function generateMLSDataFromURLs(
+  photoUrls: string[],
+  address: string,
+  model: MLSModel = "claude"
+): Promise<MLSDataResponse> {
+  console.log(`Generating MLS data from ${photoUrls.length} photo URLs using ${model}`);
+
+  const response = await fetch("/api/generate-mls-data-urls", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      photo_urls: photoUrls,
+      address: address,
+      model: model,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Failed to extract MLS data from URLs");
+  }
+
+  return data;
+}
+
+/**
+ * Generate MLS data with Supabase Storage upload
+ * Uploads photos to storage first, then sends URLs to backend
+ * This bypasses Vercel's 4.5MB payload limit
+ * @param photos - Array of photo data with files
+ * @param address - Full property address string
+ * @param userId - User ID for storage path
+ * @param model - AI model to use: 'claude' (default), 'gpt', or 'gemini'
+ * @param onProgress - Optional callback for progress updates
+ */
+export async function generateMLSDataWithStorage(
+  photos: PhotoData[],
+  address: string,
+  userId: string,
+  model: MLSModel = "claude",
+  onProgress?: (message: string) => void
+): Promise<{ mlsData: MLSDataResponse; photoUrls: string[] }> {
+  onProgress?.(`Uploading ${photos.length} photos to storage...`);
+  const { urls, errors } = await uploadPhotosToStorage(photos, userId);
+
+  if (urls.length === 0) {
+    throw new Error("Failed to upload any photos to storage");
+  }
+
+  if (errors.length > 0) {
+    console.warn(`Some photos failed to upload:`, errors);
+  }
+
+  onProgress?.(`Analyzing ${urls.length} photos with Claude AI...`);
+  const mlsData = await generateMLSDataFromURLs(urls, address, model);
+
+  return {
+    mlsData,
+    photoUrls: urls,
+  };
 }

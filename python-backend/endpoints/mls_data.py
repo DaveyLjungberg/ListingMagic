@@ -37,7 +37,7 @@ class MLSDataRequest(BaseModel):
     """Request model for MLS data extraction."""
     images: List[str] = Field(..., description="Base64 encoded images")
     address: str = Field(..., description="Property address")
-    model: str = Field(default="gemini", description="AI model: gemini, gpt, or claude")
+    model: str = Field(default="claude", description="AI model: claude (default, best), gpt, or gemini")
 
 
 class MLSDataResponse(BaseModel):
@@ -278,9 +278,9 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
     - Estimated square footage and year built
 
     **Models available:**
-    - `gemini` (default): Fastest, good accuracy
-    - `gpt`: Best for complex photos
-    - `claude`: Best for detailed analysis
+    - `claude` (default): Best accuracy, handles many photos well
+    - `gpt`: Good for complex photos
+    - `gemini`: Fastest option
     """
     start_time = time.time()
 

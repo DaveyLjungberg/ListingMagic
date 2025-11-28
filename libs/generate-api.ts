@@ -33,12 +33,12 @@ const IMAGE_CONFIG = {
   outputType: "image/jpeg" as const,
 };
 
-// High-quality config for MLS extraction (balanced for Vercel 4.5MB payload limit)
+// MLS extraction config - Claude can handle many photos efficiently
 const MLS_IMAGE_CONFIG = {
-  maxWidth: 1280,        // Reduced to stay under payload limits
-  maxHeight: 1280,
-  quality: 0.85,         // Balanced quality vs size
-  maxImages: 6,          // Limit images to keep payload ~3-4MB
+  maxWidth: 1024,        // Balanced resolution for Claude
+  maxHeight: 1024,
+  quality: 0.8,          // Good quality while keeping payload reasonable
+  maxImages: 20,         // Claude handles many photos well - allow up to 20
   outputType: "image/jpeg" as const,
 };
 
@@ -594,17 +594,17 @@ export function getFriendlyErrorMessage(error: Error | string): string {
 
 /**
  * Extract MLS data from property photos using AI vision
- * Uses GPT-4.1 Vision by default for best accuracy
+ * Uses Claude by default - can handle all photos in one call for best accuracy
  * @param photos - Array of photo data with files
  * @param address - Full property address string
- * @param model - AI model to use: 'gpt' (default for best accuracy), 'gemini', or 'claude'
+ * @param model - AI model to use: 'claude' (default, best), 'gpt', or 'gemini'
  */
 export async function generateMLSData(
   photos: PhotoData[],
   address: string,
-  model: MLSModel = "gpt"
+  model: MLSModel = "claude"
 ): Promise<MLSDataResponse> {
-  // Convert photos to high-quality base64 for MLS extraction
+  // Convert photos to base64 for MLS extraction
   const images = await convertPhotosForMLS(photos);
 
   if (images.length === 0) {

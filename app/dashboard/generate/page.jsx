@@ -22,7 +22,6 @@ import {
   getFriendlyErrorMessage,
   isRateLimitError,
 } from "@/libs/generate-api";
-import { selectBestPhotosForMLS } from "@/libs/smart-photo-selector";
 import { saveListing } from "@/libs/listings";
 
 export default function GeneratePage() {
@@ -209,28 +208,14 @@ export default function GeneratePage() {
         }
       }
 
-      // STEP 4: MLS Data Extraction (GPT-4.1 Vision) - only if no rate limit
+      // STEP 4: MLS Data Extraction (Claude) - only if no rate limit
       if (!rateLimitHit) {
-        // Smart select best photos if more than 12
-        let photosForMLS = photos;
-        if (photos.length > 12) {
-          setGenerationProgress({ step: 4, total: totalSteps, label: "Selecting best photos for MLS..." });
-          toast.loading(`Analyzing ${photos.length} photos to select best ones... (4/${totalSteps})`, { id: "generating" });
-          try {
-            const { selected } = await selectBestPhotosForMLS(photos, 12);
-            photosForMLS = selected;
-          } catch (error) {
-            console.error("Photo selection error:", error);
-            // Fall back to first 12 photos
-            photosForMLS = photos.slice(0, 12);
-          }
-        }
-
         setGenerationProgress({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
-        toast.loading(`Extracting MLS data from ${photosForMLS.length} photos... (4/${totalSteps})`, { id: "generating" });
+        toast.loading(`Extracting MLS data from ${photos.length} photos with Claude... (4/${totalSteps})`, { id: "generating" });
 
         try {
-          const mlsResult = await generateMLSData(photosForMLS, addressString);
+          // Claude handles all photos directly - no selection needed
+          const mlsResult = await generateMLSData(photos, addressString);
           setMlsData(mlsResult);
           successCount++;
         } catch (error) {
@@ -312,6 +297,7 @@ export default function GeneratePage() {
     }
 
     setIsGeneratingMLS(true);
+    toast.loading(`Extracting MLS data from ${photos.length} photos with Claude...`, { id: "mls-generating" });
 
     try {
       // Format address string
@@ -319,23 +305,10 @@ export default function GeneratePage() {
         ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
         : "";
 
-      // Smart select best photos if more than 12
-      let photosToUse = photos;
-      if (photos.length > 12) {
-        toast.loading(`Analyzing ${photos.length} photos to select best ones...`, { id: "mls-generating" });
-        const { selected, selectionReason } = await selectBestPhotosForMLS(photos, 12);
-        photosToUse = selected;
-        toast.success(selectionReason, { id: "mls-generating" });
-        // Small delay to show selection result
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      toast.loading(`Extracting MLS data from ${photosToUse.length} photos with GPT-4.1 Vision...`, { id: "mls-generating" });
-
-      // Uses GPT-4.1 Vision (default) for best accuracy
-      const result = await generateMLSData(photosToUse, addressString);
+      // Claude handles all photos directly - no selection needed
+      const result = await generateMLSData(photos, addressString);
       setMlsData(result);
-      toast.success(`Extracted ${Object.keys(result.confidence_scores || {}).length} MLS fields from ${photosToUse.length} photos!`, { id: "mls-generating" });
+      toast.success(`Extracted ${Object.keys(result.confidence_scores || {}).length} MLS fields from ${result.photos_analyzed} photos!`, { id: "mls-generating" });
     } catch (error) {
       console.error("MLS generation error:", error);
       toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });

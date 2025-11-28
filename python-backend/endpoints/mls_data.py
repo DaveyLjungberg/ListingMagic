@@ -347,12 +347,20 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
 
 async def download_image_as_base64(url: str) -> str:
     """Download an image from URL and convert to base64."""
-    async with httpx.AsyncClient() as client:
+    # Strip whitespace/newlines from URL
+    url = url.strip()
+
+    # Use browser-like headers to avoid 400 errors
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    async with httpx.AsyncClient(headers=headers) as client:
         response = await client.get(url, timeout=30.0)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to download image from {url}: {response.status_code} - {response.text}")
+            logger.error(f"Failed to download image from {url}: {e.response.status_code} - {e.response.text}")
             raise
         return base64.b64encode(response.content).decode("utf-8")
 

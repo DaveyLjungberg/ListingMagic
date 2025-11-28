@@ -1,34 +1,77 @@
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
-import { NextResponse } from "next/server";
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
 
-export async function middleware(req) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
+export async function middleware(request) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
-  // Refresh session if expired
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get(name) {
+          return request.cookies.get(name)?.value
+        },
+        set(name, value, options) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+        },
+        remove(name, options) {
+          request.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          response.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+        },
+      },
+    }
+  )
 
-  // Check if accessing protected routes
-  const isProtectedRoute = req.nextUrl.pathname.startsWith("/dashboard");
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const isProtectedRoute = request.nextUrl.pathname.startsWith('/dashboard')
+  const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
 
   if (isProtectedRoute && !session) {
-    // Redirect to login if not authenticated
-    const redirectUrl = new URL("/auth/login", req.url);
-    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname);
-    return NextResponse.redirect(redirectUrl);
+    const redirectUrl = new URL('/auth/login', request.url)
+    redirectUrl.searchParams.set('redirectTo', request.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
   }
 
-  // Redirect authenticated users away from auth pages (except logout)
-  const isAuthRoute = req.nextUrl.pathname.startsWith("/auth");
-  if (isAuthRoute && session && !req.nextUrl.pathname.includes("/logout")) {
-    return NextResponse.redirect(new URL("/dashboard/generate", req.url));
+  if (isAuthRoute && session && !request.nextUrl.pathname.includes('/logout')) {
+    return NextResponse.redirect(new URL('/dashboard/generate', request.url))
   }
 
-  return res;
+  return response
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/auth/:path*"],
-};
+  matcher: ['/dashboard/:path*', '/auth/:path*'],
+}

@@ -58,9 +58,9 @@ export default function GeneratePage() {
 
   // Check if any content has been generated (for save button visibility)
   const hasGeneratedContent =
-    generationState.publicRemarks.data?.text ||
-    generationState.walkthruScript.data?.script ||
-    generationState.features.data?.features_list;
+    generationState.publicRemarks.data ||
+    generationState.walkthruScript.data ||
+    generationState.features.data;
 
   // Handle generate all content - SEQUENTIAL to avoid rate limits
   const handleGenerateAll = async () => {

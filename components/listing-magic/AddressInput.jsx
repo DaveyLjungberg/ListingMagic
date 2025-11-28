@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, forwardRef, useImperativeHandle, useRef } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback } from "react";
 
 const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => {
-  const [address, setAddress] = useState({
+  const [address, setAddressState] = useState({
     street: "",
     zip: "",
     city: "",
@@ -12,6 +12,29 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
   const [zipLookupStatus, setZipLookupStatus] = useState("idle"); // idle, loading, success, error
   const [zipError, setZipError] = useState(null);
   const lastLookedUpZip = useRef("");
+
+  // Store callback in ref to avoid re-render loops
+  const onAddressChangeRef = useRef(onAddressChange);
+  onAddressChangeRef.current = onAddressChange;
+
+  // Stable setAddress function that also notifies parent
+  const setAddress = useCallback((updater) => {
+    setAddressState(prev => {
+      const newAddress = typeof updater === 'function' ? updater(prev) : updater;
+      // Notify parent after state update (via ref to avoid dependency issues)
+      setTimeout(() => {
+        if (onAddressChangeRef.current) {
+          onAddressChangeRef.current({
+            street: newAddress.street,
+            zip_code: newAddress.zip,
+            city: newAddress.city || undefined,
+            state: newAddress.state || undefined,
+          });
+        }
+      }, 0);
+      return newAddress;
+    });
+  }, []);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -23,36 +46,34 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
     }),
     isValid: () => Boolean(address.street && address.zip.length === 5),
     clearAddress: () => {
-      setAddress({ street: "", zip: "", city: "", state: "" });
+      setAddressState({ street: "", zip: "", city: "", state: "" });
       setZipLookupStatus("idle");
       setZipError(null);
       lastLookedUpZip.current = "";
     },
     setAddress: (newAddress) => {
-      setAddress({
+      const addressData = {
         street: newAddress.street || "",
         zip: newAddress.zip_code || "",
         city: newAddress.city || "",
         state: newAddress.state || ""
-      });
+      };
+      setAddressState(addressData);
       if (newAddress.zip_code && newAddress.city) {
         lastLookedUpZip.current = newAddress.zip_code;
         setZipLookupStatus("success");
       }
+      // Notify parent
+      if (onAddressChangeRef.current) {
+        onAddressChangeRef.current({
+          street: addressData.street,
+          zip_code: addressData.zip,
+          city: addressData.city || undefined,
+          state: addressData.state || undefined,
+        });
+      }
     }
-  }));
-
-  // Notify parent of address changes
-  useEffect(() => {
-    if (onAddressChange) {
-      onAddressChange({
-        street: address.street,
-        zip_code: address.zip,
-        city: address.city || undefined,
-        state: address.state || undefined,
-      });
-    }
-  }, [address, onAddressChange]);
+  }), [address]);
 
   // Lookup city/state from ZIP code using Zippopotam.us API
   useEffect(() => {
@@ -69,10 +90,10 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
         if (!response.ok) {
           if (response.status === 404) {
             setZipError("ZIP code not found");
-            setAddress(prev => ({ ...prev, city: "", state: "" }));
+            setAddressState(prev => ({ ...prev, city: "", state: "" }));
           } else {
             setZipError("Lookup failed - enter manually");
-            setAddress(prev => ({ ...prev, city: "", state: "" }));
+            setAddressState(prev => ({ ...prev, city: "", state: "" }));
           }
           setZipLookupStatus("error");
           return;
@@ -82,22 +103,34 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
 
         if (data.places && data.places.length > 0) {
           const place = data.places[0];
-          setAddress(prev => ({
-            ...prev,
-            city: place["place name"],
-            state: place["state abbreviation"]
-          }));
+          const newCity = place["place name"];
+          const newState = place["state abbreviation"];
+          setAddressState(prev => {
+            const newAddress = { ...prev, city: newCity, state: newState };
+            // Notify parent of the auto-populated city/state
+            setTimeout(() => {
+              if (onAddressChangeRef.current) {
+                onAddressChangeRef.current({
+                  street: newAddress.street,
+                  zip_code: newAddress.zip,
+                  city: newAddress.city || undefined,
+                  state: newAddress.state || undefined,
+                });
+              }
+            }, 0);
+            return newAddress;
+          });
           setZipLookupStatus("success");
           lastLookedUpZip.current = zip;
         } else {
           setZipError("ZIP code not found");
-          setAddress(prev => ({ ...prev, city: "", state: "" }));
+          setAddressState(prev => ({ ...prev, city: "", state: "" }));
           setZipLookupStatus("error");
         }
       } catch (error) {
         console.error("ZIP lookup error:", error);
         setZipError("Lookup failed - enter manually");
-        setAddress(prev => ({ ...prev, city: "", state: "" }));
+        setAddressState(prev => ({ ...prev, city: "", state: "" }));
         setZipLookupStatus("error");
       }
     };
@@ -105,9 +138,9 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
     if (address.zip.length === 5) {
       lookupZip(address.zip);
     } else if (address.zip.length < 5) {
-      // Clear city/state when ZIP is incomplete
+      // Clear city/state when ZIP is incomplete - use internal state only
       if (address.city || address.state) {
-        setAddress(prev => ({ ...prev, city: "", state: "" }));
+        setAddressState(prev => ({ ...prev, city: "", state: "" }));
       }
       setZipLookupStatus("idle");
       setZipError(null);

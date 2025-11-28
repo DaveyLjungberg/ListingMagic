@@ -127,26 +127,26 @@ export default function GeneratePage() {
         ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
         : "";
 
-      // STEP 1: Features (Gemini - fast & cheap)
-      setGenerationProgress({ step: 1, total: totalSteps, label: "Generating features..." });
-      toast.loading(`Generating features... (1/${totalSteps})`, { id: "generating" });
+      // STEP 1: Public Remarks (GPT-4.1)
+      setGenerationProgress({ step: 1, total: totalSteps, label: "Generating public remarks..." });
+      toast.loading(`Generating public remarks... (1/${totalSteps})`, { id: "generating" });
       setGenerationState(prev => ({
         ...prev,
-        features: { status: "loading", data: null, error: null },
+        publicRemarks: { status: "loading", data: null, error: null },
       }));
 
       try {
-        const featuresResult = await generateFeatures(propertyDetails);
+        const publicRemarksResult = await generatePublicRemarks(propertyDetails);
         setGenerationState(prev => ({
           ...prev,
-          features: { status: "success", data: featuresResult, error: null },
+          publicRemarks: { status: "success", data: publicRemarksResult, error: null },
         }));
         successCount++;
       } catch (error) {
         const friendlyError = getFriendlyErrorMessage(error);
         setGenerationState(prev => ({
           ...prev,
-          features: { status: "error", data: null, error: friendlyError },
+          publicRemarks: { status: "error", data: null, error: friendlyError },
         }));
         if (isRateLimitError(error)) {
           rateLimitHit = true;
@@ -181,27 +181,27 @@ export default function GeneratePage() {
         }
       }
 
-      // STEP 3: Public Remarks (GPT-4.1 - might hit rate limits) - only if no rate limit
+      // STEP 3: Features (Gemini - fast & cheap) - only if no rate limit
       if (!rateLimitHit) {
-        setGenerationProgress({ step: 3, total: totalSteps, label: "Generating public remarks..." });
-        toast.loading(`Generating public remarks... (3/${totalSteps})`, { id: "generating" });
+        setGenerationProgress({ step: 3, total: totalSteps, label: "Generating features..." });
+        toast.loading(`Generating features... (3/${totalSteps})`, { id: "generating" });
         setGenerationState(prev => ({
           ...prev,
-          publicRemarks: { status: "loading", data: null, error: null },
+          features: { status: "loading", data: null, error: null },
         }));
 
         try {
-          const publicRemarksResult = await generatePublicRemarks(propertyDetails);
+          const featuresResult = await generateFeatures(propertyDetails);
           setGenerationState(prev => ({
             ...prev,
-            publicRemarks: { status: "success", data: publicRemarksResult, error: null },
+            features: { status: "success", data: featuresResult, error: null },
           }));
           successCount++;
         } catch (error) {
           const friendlyError = getFriendlyErrorMessage(error);
           setGenerationState(prev => ({
             ...prev,
-            publicRemarks: { status: "error", data: null, error: friendlyError },
+            features: { status: "error", data: null, error: friendlyError },
           }));
           if (isRateLimitError(error)) {
             rateLimitHit = true;

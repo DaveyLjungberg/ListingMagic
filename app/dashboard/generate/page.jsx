@@ -23,6 +23,7 @@ import {
   getFriendlyErrorMessage,
   isRateLimitError,
 } from "@/libs/generate-api";
+import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing } from "@/libs/listings";
 
 export default function GeneratePage() {
@@ -224,7 +225,30 @@ export default function GeneratePage() {
     });
 
     try {
-      // Convert photos to base64
+      // Step 0: Upload photos to Supabase Storage (for saving later)
+      setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Uploading photos..." });
+      toast.loading("Uploading photos...", { id: "generating-desc" });
+
+      // Only upload if we have File objects (fresh uploads), not if photos are already URLs
+      const hasFileObjects = photosDesc.some(p => p.file && p.file instanceof File);
+      if (hasFileObjects && user?.id) {
+        const { urls: uploadedUrls, errors: uploadErrors } = await uploadPhotosToStorage(
+          photosDesc.filter(p => p.file && p.file instanceof File),
+          user.id
+        );
+        if (uploadErrors.length > 0) {
+          console.warn("Some photos failed to upload:", uploadErrors);
+        }
+        if (uploadedUrls.length > 0) {
+          setPhotoUrlsDesc(uploadedUrls);
+          console.log("[handleGenerateAllDesc] Uploaded photos to Supabase:", uploadedUrls);
+        }
+      } else if (!hasFileObjects && photoUrlsDesc.length > 0) {
+        // Photos are already URLs (loaded from previous listing)
+        console.log("[handleGenerateAllDesc] Using existing photo URLs:", photoUrlsDesc);
+      }
+
+      // Convert photos to base64 for API calls
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Preparing photos..." });
       toast.loading("Preparing photos...", { id: "generating-desc" });
       const imageInputs = await convertPhotosToImageInputs(photosDesc);
@@ -516,6 +540,11 @@ export default function GeneratePage() {
       );
 
       setMlsData(result);
+      // Save the uploaded photo URLs for database storage
+      if (photoUrls.length > 0) {
+        setPhotoUrlsMLS(photoUrls);
+        console.log("[handleGenerateMLS] Saved photo URLs:", photoUrls);
+      }
       toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
     } catch (error) {
       console.error("MLS generation error:", error);

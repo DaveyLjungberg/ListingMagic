@@ -52,6 +52,16 @@ export async function uploadPhotosToStorage(
     const photo = photos[i];
 
     try {
+      // Skip photos without File objects (already uploaded URLs)
+      if (!photo.file) {
+        console.log(`Photo ${i} has no file, skipping upload`);
+        // If it has a preview URL that's already a Supabase URL, include it
+        if (photo.preview && photo.preview.startsWith('http')) {
+          urls.push(photo.preview);
+        }
+        continue;
+      }
+
       // Convert photo file to blob
       const blob = photo.file;
 

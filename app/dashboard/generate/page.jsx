@@ -76,13 +76,18 @@ export default function GeneratePage() {
   }, []);
 
   // Auto-save descriptions listing when generation completes
+  // Only save when we have valid photo URLs (not blob URLs)
   useEffect(() => {
     const allGenerated =
       generationState.publicRemarks.status === "success" &&
       generationState.walkthruScript.status === "success" &&
       generationState.features.status === "success";
 
-    if (allGenerated && user && addressDesc) {
+    // Only save if we have valid Supabase URLs (not blob URLs)
+    const hasValidPhotoUrls = photoUrlsDesc.length > 0 &&
+      photoUrlsDesc.every(url => url.startsWith('http') && !url.startsWith('blob:'));
+
+    if (allGenerated && user && addressDesc && hasValidPhotoUrls) {
       // Auto-save the listing
       const autoSaveDesc = async () => {
         try {
@@ -121,11 +126,12 @@ export default function GeneratePage() {
             features: generationState.features.data
               ? JSON.stringify(generationState.features.data.categorized_features || generationState.features.data.features_list)
               : null,
-            photo_urls: photoUrlsDesc.length > 0 ? photoUrlsDesc : photosDesc.map((p) => p.preview || null).filter(Boolean),
+            photo_urls: photoUrlsDesc,
             ai_cost: totalCost,
             generation_time: totalTime,
           };
 
+          console.log("[Auto-save Desc] Saving with photo URLs:", photoUrlsDesc);
           const result = await saveListing(listingData);
 
           if (result.success) {
@@ -138,11 +144,16 @@ export default function GeneratePage() {
 
       autoSaveDesc();
     }
-  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
+  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
 
   // Auto-save MLS listing when extraction completes
+  // Only save when we have both mlsData AND valid photo URLs (not blob URLs)
   useEffect(() => {
-    if (mlsData && user && addressMLS) {
+    // Only save if we have MLS data and valid Supabase URLs (not blob URLs)
+    const hasValidPhotoUrls = photoUrlsMLS.length > 0 &&
+      photoUrlsMLS.every(url => url.startsWith('http') && !url.startsWith('blob:'));
+
+    if (mlsData && user && addressMLS && hasValidPhotoUrls) {
       const autoSaveMLS = async () => {
         try {
           // Format address
@@ -167,11 +178,12 @@ export default function GeneratePage() {
             walkthru_script: null,
             features: null,
             mls_data: mlsData,
-            photo_urls: photoUrlsMLS.length > 0 ? photoUrlsMLS : photosMLS.map((p) => p.preview || null).filter(Boolean),
+            photo_urls: photoUrlsMLS,
             ai_cost: 0,
             generation_time: mlsData.processing_time_ms || 0,
           };
 
+          console.log("[Auto-save MLS] Saving with photo URLs:", photoUrlsMLS);
           const result = await saveListing(listingData);
 
           if (result.success) {
@@ -184,7 +196,7 @@ export default function GeneratePage() {
 
       autoSaveMLS();
     }
-  }, [mlsData]);
+  }, [mlsData, photoUrlsMLS]);
 
   // =========================================================================
   // PROPERTY DESCRIPTIONS TAB HANDLERS
@@ -455,25 +467,41 @@ export default function GeneratePage() {
 
   // Handle loading a previous MLS listing
   const handleLoadMLSListing = (listing) => {
+    console.log("[handleLoadMLSListing] Loading listing:", listing);
+    console.log("[handleLoadMLSListing] address_json:", listing.address_json);
+    console.log("[handleLoadMLSListing] photo_urls:", listing.photo_urls);
+    console.log("[handleLoadMLSListing] mls_data:", listing.mls_data);
+    console.log("[handleLoadMLSListing] addressInputMLSRef.current:", addressInputMLSRef.current);
+    console.log("[handleLoadMLSListing] photoUploaderMLSRef.current:", photoUploaderMLSRef.current);
+
     // Set address via ref (to avoid circular updates)
     if (listing.address_json && addressInputMLSRef.current) {
+      console.log("[handleLoadMLSListing] Setting address...");
       addressInputMLSRef.current.setAddress({
         street: listing.address_json.street,
         city: listing.address_json.city,
         state: listing.address_json.state,
         zip_code: listing.address_json.zip_code,
       });
+    } else {
+      console.log("[handleLoadMLSListing] Skipping address - no data or no ref");
     }
 
     // Set photo URLs via ref
     if (listing.photo_urls?.length > 0 && photoUploaderMLSRef.current) {
+      console.log("[handleLoadMLSListing] Setting photos...");
       setPhotoUrlsMLS(listing.photo_urls);
       photoUploaderMLSRef.current.setPhotosFromUrls(listing.photo_urls);
+    } else {
+      console.log("[handleLoadMLSListing] Skipping photos - no URLs or no ref");
     }
 
     // Set MLS data
     if (listing.mls_data) {
+      console.log("[handleLoadMLSListing] Setting MLS data...");
       setMlsData(listing.mls_data);
+    } else {
+      console.log("[handleLoadMLSListing] No MLS data in listing");
     }
 
     toast.success("MLS listing loaded successfully");

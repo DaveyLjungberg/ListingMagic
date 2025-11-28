@@ -25,6 +25,7 @@ function getSupabaseAdmin() {
 }
 
 interface ListingData {
+  user_id: string | null;
   property_address: string;
   property_type: string;
   bedrooms: number | null;
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from("listings")
       .insert({
-        user_id: null, // Will add auth later
+        user_id: body.user_id,
         property_address: body.property_address,
         property_type: body.property_type,
         bedrooms: body.bedrooms,

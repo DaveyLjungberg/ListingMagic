@@ -1,28 +1,34 @@
-import NextAuth from "next-auth"
-import GoogleProvider from "next-auth/providers/google"
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
+import { NextResponse } from "next/server";
 
-// Edge-compatible configuration for middleware (without EmailProvider and MongoDB adapter)
-// When using NextAuth.js in middleware, you need to use the edge-compatible configuration
-// This is because the middleware runs in an edge environment, and the EmailProvider is not compatible with edge environments
-// The MongoDB adapter is also not compatible with edge environments, so we need to use the edge-compatible configuration
-const { auth } = NextAuth({
-  providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_ID,
-      clientSecret: process.env.GOOGLE_SECRET,
-    }),
-  ],
-  secret: process.env.NEXTAUTH_SECRET,
-  session: {
-    strategy: "jwt",
-  },
-})
+export async function middleware(req) {
+  const res = NextResponse.next();
+  const supabase = createMiddlewareClient({ req, res });
 
-export default auth(async function middleware(req) {
-  // Your custom middleware logic goes here if needed
-})
+  // Refresh session if expired
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-// Optionally, don't invoke Middleware on some paths
+  // Check if accessing protected routes
+  const isProtectedRoute = req.nextUrl.pathname.startsWith("/dashboard");
+
+  if (isProtectedRoute && !session) {
+    // Redirect to login if not authenticated
+    const redirectUrl = new URL("/auth/login", req.url);
+    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Redirect authenticated users away from auth pages (except logout)
+  const isAuthRoute = req.nextUrl.pathname.startsWith("/auth");
+  if (isAuthRoute && session && !req.nextUrl.pathname.includes("/logout")) {
+    return NextResponse.redirect(new URL("/dashboard/generate", req.url));
+  }
+
+  return res;
+}
+
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-} 
+  matcher: ["/dashboard/:path*", "/auth/:path*"],
+};

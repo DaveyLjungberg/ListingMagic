@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import toast from "react-hot-toast";
-import ButtonAccount from "@/components/ButtonAccount";
+import UserMenu from "@/components/UserMenu";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import GeneratedSection from "@/components/listing-magic/GeneratedSection";
 import MLSPlaceholder from "@/components/listing-magic/MLSPlaceholder";
+import { supabase } from "@/libs/supabase";
 import {
   generateFeatures,
   generateWalkthruScript,
@@ -28,9 +29,28 @@ export default function GeneratePage() {
   const photoUploaderRef = useRef(null);
   const addressInputRef = useRef(null);
 
+  // User state
+  const [user, setUser] = useState(null);
+
   // Form state
   const [photos, setPhotos] = useState([]);
   const [address, setAddress] = useState(null);
+
+  // Get current user on mount
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    getUser();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -266,6 +286,7 @@ export default function GeneratePage() {
 
       // Prepare listing data
       const listingData = {
+        user_id: user?.id || null,
         property_address: propertyAddress,
         property_type: "single_family",
         bedrooms: null,
@@ -405,8 +426,8 @@ export default function GeneratePage() {
               </h1>
             </div>
 
-            {/* Account Button */}
-            <ButtonAccount />
+            {/* User Menu */}
+            <UserMenu user={user} />
           </div>
         </div>
       </header>

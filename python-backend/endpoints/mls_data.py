@@ -345,8 +345,12 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
 # URL-based Extraction Functions
 # =============================================================================
 
-async def download_image_as_base64(url: str) -> str:
-    """Download an image from URL and convert to base64."""
+async def download_image_as_base64(url: str) -> Dict[str, str]:
+    """Download an image from URL and convert to base64 with media type.
+
+    Returns:
+        Dict with 'data' (base64 string) and 'media_type' (content type)
+    """
     # Strip whitespace/newlines from URL
     url = url.strip()
 
@@ -362,7 +366,17 @@ async def download_image_as_base64(url: str) -> str:
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to download image from {url}: {e.response.status_code} - {e.response.text}")
             raise
-        return base64.b64encode(response.content).decode("utf-8")
+
+        # Get media type from response headers, fallback to image/jpeg
+        media_type = response.headers.get("content-type", "image/jpeg")
+        # Clean up media type (remove charset and other parameters)
+        if ";" in media_type:
+            media_type = media_type.split(";")[0].strip()
+
+        return {
+            "data": base64.b64encode(response.content).decode("utf-8"),
+            "media_type": media_type
+        }
 
 
 async def extract_with_claude_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
@@ -374,13 +388,13 @@ async def extract_with_claude_urls(photo_urls: List[str], prompt: str) -> Dict[s
     for url in photo_urls:
         # Download and convert to base64 for Claude
         try:
-            img_b64 = await download_image_as_base64(url)
+            img_data = await download_image_as_base64(url)
             content.append({
                 "type": "image",
                 "source": {
                     "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": img_b64
+                    "media_type": img_data["media_type"],
+                    "data": img_data["data"]
                 }
             })
         except Exception as e:
@@ -430,10 +444,10 @@ async def extract_with_gemini_urls(photo_urls: List[str], prompt: str) -> Dict[s
     image_parts = []
     for url in photo_urls:
         try:
-            img_b64 = await download_image_as_base64(url)
+            img_data = await download_image_as_base64(url)
             image_parts.append({
-                "mime_type": "image/jpeg",
-                "data": img_b64
+                "mime_type": img_data["media_type"],
+                "data": img_data["data"]
             })
         except Exception as e:
             logger.warning(f"Failed to download image {url}: {e}")

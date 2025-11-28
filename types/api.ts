@@ -205,6 +205,57 @@ export interface PhotoData {
 }
 
 // =============================================================================
+// MLS Data Extraction Types
+// =============================================================================
+
+export type MLSModel = "gemini" | "gpt" | "claude";
+
+export interface MLSDataRequest {
+  images: string[];
+  address: string;
+  model?: MLSModel;
+}
+
+export interface RoomData {
+  room_type: string;
+  level: string;
+  length_ft?: number;
+  width_ft?: number;
+}
+
+export interface MLSDataResponse {
+  success: boolean;
+  // High Confidence Fields (directly observable)
+  property_type?: string;
+  bedrooms?: number;
+  bathrooms_full?: number;
+  bathrooms_half?: number;
+  stories?: number;
+  garage_spaces?: number;
+  flooring?: string[];
+  appliances?: string[];
+  exterior_material?: string;
+  roof?: string;
+  parking?: string[];
+  interior_features?: string[];
+  rooms?: RoomData[];
+  // Moderate Confidence Fields (estimated)
+  year_built_estimate?: string;
+  total_finished_sqft_estimate?: number;
+  lot_size_estimate?: string;
+  basement?: string;
+  foundation?: string;
+  water_source?: string;
+  green_features?: string[];
+  hoa_visible_amenities?: string[];
+  // Metadata
+  confidence_scores?: Record<string, "high" | "medium" | "low">;
+  model_used?: string;
+  processing_time_ms?: number;
+  photos_analyzed?: number;
+}
+
+// =============================================================================
 // API Response Wrapper
 // =============================================================================
 

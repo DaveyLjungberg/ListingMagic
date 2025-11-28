@@ -15,6 +15,9 @@ import type {
   PublicRemarksRequest,
   WalkthruScriptRequest,
   FeaturesRequest,
+  MLSDataRequest,
+  MLSDataResponse,
+  MLSModel,
 } from "@/types/api";
 
 // =============================================================================
@@ -538,4 +541,104 @@ export function getFriendlyErrorMessage(error: Error | string): string {
   }
 
   return message;
+}
+
+// =============================================================================
+// MLS Data Extraction
+// =============================================================================
+
+/**
+ * Extract MLS data from property photos using AI vision
+ * @param photos - Array of photo data with files
+ * @param address - Full property address string
+ * @param model - AI model to use: 'gemini' (default), 'gpt', or 'claude'
+ */
+export async function generateMLSData(
+  photos: PhotoData[],
+  address: string,
+  model: MLSModel = "gemini"
+): Promise<MLSDataResponse> {
+  // Convert photos to base64
+  const imageInputs = await convertPhotosToImageInputs(photos);
+  const images = imageInputs.map(img => img.base64 || "").filter(Boolean);
+
+  if (images.length === 0) {
+    throw new Error("No valid images provided");
+  }
+
+  const request: MLSDataRequest = {
+    images,
+    address,
+    model,
+  };
+
+  const response = await fetch("/api/generate-mls-data", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Failed to extract MLS data");
+  }
+
+  return data;
+}
+
+/**
+ * Mock MLS data for testing
+ */
+export const MOCK_MLS_DATA: MLSDataResponse = {
+  success: true,
+  property_type: "Single Family",
+  bedrooms: 4,
+  bathrooms_full: 2,
+  bathrooms_half: 1,
+  stories: 2,
+  garage_spaces: 2,
+  flooring: ["Hardwood", "Carpet", "Tile"],
+  appliances: ["Refrigerator", "Stove", "Dishwasher", "Microwave", "Washer", "Dryer"],
+  exterior_material: "Vinyl Siding",
+  roof: "Asphalt Shingle",
+  parking: ["Attached Garage", "Paved Driveway"],
+  interior_features: ["Fireplace", "Walk-in Closet", "Vaulted Ceilings", "Crown Molding"],
+  rooms: [
+    { room_type: "Master Bedroom", level: "Upper", length_ft: 14, width_ft: 12 },
+    { room_type: "Kitchen", level: "Main", length_ft: 16, width_ft: 12 },
+    { room_type: "Living Room", level: "Main", length_ft: 18, width_ft: 14 },
+    { room_type: "Bedroom 2", level: "Upper", length_ft: 12, width_ft: 10 },
+    { room_type: "Bedroom 3", level: "Upper", length_ft: 11, width_ft: 10 },
+  ],
+  year_built_estimate: "2000s",
+  total_finished_sqft_estimate: 2400,
+  lot_size_estimate: "0.25 acres",
+  basement: "Yes",
+  foundation: "Concrete Perimeter",
+  water_source: "Public",
+  green_features: ["Energy Star Windows"],
+  hoa_visible_amenities: null,
+  confidence_scores: {
+    property_type: "high",
+    bedrooms: "high",
+    bathrooms_full: "high",
+    flooring: "high",
+    appliances: "high",
+    year_built_estimate: "medium",
+    total_finished_sqft_estimate: "medium",
+    lot_size_estimate: "low",
+  },
+  model_used: "gemini",
+  processing_time_ms: 3500,
+  photos_analyzed: 8,
+};
+
+/**
+ * Generate MLS data using mock data (for testing)
+ */
+export async function generateMLSDataMock(): Promise<MLSDataResponse> {
+  // Simulate network delay
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  return MOCK_MLS_DATA;
 }

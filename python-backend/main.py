@@ -41,6 +41,7 @@ from services.openai_service import get_openai_service
 from services.anthropic_service import get_anthropic_service
 from services.gemini_service import get_gemini_service
 from utils import get_cost_tracker
+from endpoints.mls_data import router as mls_router
 
 # Configure logging
 logging.basicConfig(
@@ -125,6 +126,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(mls_router)
 
 
 # =============================================================================

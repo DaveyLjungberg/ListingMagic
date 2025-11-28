@@ -98,6 +98,7 @@ export default function GeneratePage() {
     setIsGenerating(true);
     let successCount = 0;
     let rateLimitHit = false;
+    const totalSteps = 4; // Features, Walk-thru, Public Remarks, MLS Data
 
     // Reset all states
     setGenerationState({
@@ -105,10 +106,11 @@ export default function GeneratePage() {
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
     });
+    setMlsData(null);
 
     try {
       // Convert photos to base64
-      setGenerationProgress({ step: 0, total: 3, label: "Preparing photos..." });
+      setGenerationProgress({ step: 0, total: totalSteps, label: "Preparing photos..." });
       toast.loading("Preparing photos...", { id: "generating" });
       const imageInputs = await convertPhotosToImageInputs(photos);
 
@@ -119,9 +121,14 @@ export default function GeneratePage() {
         property_type: "single_family",
       };
 
+      // Format address string for MLS
+      const addressString = address
+        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
+        : "";
+
       // STEP 1: Features (Gemini - fast & cheap)
-      setGenerationProgress({ step: 1, total: 3, label: "Generating features..." });
-      toast.loading("Generating features... (1/3)", { id: "generating" });
+      setGenerationProgress({ step: 1, total: totalSteps, label: "Generating features..." });
+      toast.loading(`Generating features... (1/${totalSteps})`, { id: "generating" });
       setGenerationState(prev => ({
         ...prev,
         features: { status: "loading", data: null, error: null },
@@ -147,8 +154,8 @@ export default function GeneratePage() {
 
       // STEP 2: Walk-thru Script (Claude) - only if no rate limit
       if (!rateLimitHit) {
-        setGenerationProgress({ step: 2, total: 3, label: "Generating walk-thru script..." });
-        toast.loading("Generating walk-thru script... (2/3)", { id: "generating" });
+        setGenerationProgress({ step: 2, total: totalSteps, label: "Generating walk-thru script..." });
+        toast.loading(`Generating walk-thru script... (2/${totalSteps})`, { id: "generating" });
         setGenerationState(prev => ({
           ...prev,
           walkthruScript: { status: "loading", data: null, error: null },
@@ -175,8 +182,8 @@ export default function GeneratePage() {
 
       // STEP 3: Public Remarks (GPT-4.1 - might hit rate limits) - only if no rate limit
       if (!rateLimitHit) {
-        setGenerationProgress({ step: 3, total: 3, label: "Generating public remarks..." });
-        toast.loading("Generating public remarks... (3/3)", { id: "generating" });
+        setGenerationProgress({ step: 3, total: totalSteps, label: "Generating public remarks..." });
+        toast.loading(`Generating public remarks... (3/${totalSteps})`, { id: "generating" });
         setGenerationState(prev => ({
           ...prev,
           publicRemarks: { status: "loading", data: null, error: null },
@@ -201,13 +208,31 @@ export default function GeneratePage() {
         }
       }
 
+      // STEP 4: MLS Data Extraction (GPT-4.1 Vision) - only if no rate limit
+      if (!rateLimitHit) {
+        setGenerationProgress({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
+        toast.loading(`Extracting MLS data with GPT-4.1 Vision... (4/${totalSteps})`, { id: "generating" });
+
+        try {
+          const mlsResult = await generateMLSData(photos, addressString);
+          setMlsData(mlsResult);
+          successCount++;
+        } catch (error) {
+          console.error("MLS extraction error:", error);
+          // MLS errors don't block success toast, but we log them
+          if (isRateLimitError(error)) {
+            rateLimitHit = true;
+          }
+        }
+      }
+
       // Show appropriate toast
       if (rateLimitHit) {
         toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating" });
-      } else if (successCount === 3) {
+      } else if (successCount === totalSteps) {
         toast.success("All content generated successfully!", { id: "generating" });
       } else if (successCount > 0) {
-        toast.success(`Generated ${successCount}/3 sections`, { id: "generating" });
+        toast.success(`Generated ${successCount}/${totalSteps} sections`, { id: "generating" });
       } else {
         toast.error("Failed to generate content", { id: "generating" });
       }
@@ -217,7 +242,7 @@ export default function GeneratePage() {
       toast.error(friendlyError, { id: "generating" });
     } finally {
       setIsGenerating(false);
-      setGenerationProgress({ step: 0, total: 3, label: "" });
+      setGenerationProgress({ step: 0, total: totalSteps, label: "" });
     }
   };
 
@@ -271,7 +296,7 @@ export default function GeneratePage() {
     }
 
     setIsGeneratingMLS(true);
-    toast.loading("Extracting MLS data from photos...", { id: "mls-generating" });
+    toast.loading("Extracting MLS data with GPT-4.1 Vision...", { id: "mls-generating" });
 
     try {
       // Format address string
@@ -279,7 +304,8 @@ export default function GeneratePage() {
         ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
         : "";
 
-      const result = await generateMLSData(photos, addressString, "gemini");
+      // Uses GPT-4.1 Vision (default) for best accuracy
+      const result = await generateMLSData(photos, addressString);
       setMlsData(result);
       toast.success(`Extracted ${Object.keys(result.confidence_scores || {}).length} MLS fields!`, { id: "mls-generating" });
     } catch (error) {
@@ -578,7 +604,7 @@ export default function GeneratePage() {
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
                           </svg>
-                          Generate All Content
+                          Generate All Content + MLS
                         </>
                       )}
                     </button>

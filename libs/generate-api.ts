@@ -33,6 +33,15 @@ const IMAGE_CONFIG = {
   outputType: "image/jpeg" as const,
 };
 
+// High-quality config for MLS extraction (needs more detail)
+const MLS_IMAGE_CONFIG = {
+  maxWidth: 1920,        // Higher resolution for detail
+  maxHeight: 1920,
+  quality: 0.9,          // Higher quality
+  maxImages: 10,         // More images for complete analysis
+  outputType: "image/jpeg" as const,
+};
+
 /**
  * Load an image file into an HTMLImageElement
  */
@@ -49,16 +58,16 @@ function loadImage(file: File): Promise<HTMLImageElement> {
  * Compress and resize an image using Canvas API
  * Returns base64 string (without data URL prefix)
  */
-export async function compressImage(file: File): Promise<string> {
+export async function compressImage(file: File, config = IMAGE_CONFIG): Promise<string> {
   const img = await loadImage(file);
 
   // Calculate new dimensions while maintaining aspect ratio
   let { width, height } = img;
 
-  if (width > IMAGE_CONFIG.maxWidth || height > IMAGE_CONFIG.maxHeight) {
+  if (width > config.maxWidth || height > config.maxHeight) {
     const ratio = Math.min(
-      IMAGE_CONFIG.maxWidth / width,
-      IMAGE_CONFIG.maxHeight / height
+      config.maxWidth / width,
+      config.maxHeight / height
     );
     width = Math.round(width * ratio);
     height = Math.round(height * ratio);
@@ -85,7 +94,7 @@ export async function compressImage(file: File): Promise<string> {
   URL.revokeObjectURL(img.src);
 
   // Convert to base64 JPEG
-  const dataUrl = canvas.toDataURL(IMAGE_CONFIG.outputType, IMAGE_CONFIG.quality);
+  const dataUrl = canvas.toDataURL(config.outputType, config.quality);
 
   // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
   const base64 = dataUrl.split(",")[1];
@@ -142,6 +151,42 @@ export async function convertPhotosToImageInputs(
   );
 
   return imageInputs;
+}
+
+/**
+ * Convert PhotoData array to high-quality base64 strings for MLS extraction
+ * Uses higher resolution and quality settings for better AI analysis
+ */
+export async function convertPhotosForMLS(
+  photos: PhotoData[]
+): Promise<string[]> {
+  // Limit number of images for MLS
+  const photosToProcess = photos.slice(0, MLS_IMAGE_CONFIG.maxImages);
+
+  if (photos.length > MLS_IMAGE_CONFIG.maxImages) {
+    console.warn(
+      `MLS: Limiting to ${MLS_IMAGE_CONFIG.maxImages} images (${photos.length} provided)`
+    );
+  }
+
+  const images: string[] = [];
+
+  for (const photo of photosToProcess) {
+    try {
+      const base64 = await compressImage(photo.file, MLS_IMAGE_CONFIG);
+      images.push(base64);
+    } catch (error) {
+      console.error(`Failed to convert photo ${photo.name} for MLS:`, error);
+    }
+  }
+
+  console.log(
+    `MLS: Processed ${images.length} high-quality images, total payload: ${(
+      images.reduce((sum, img) => sum + img.length, 0) * 0.75 / 1024 / 1024
+    ).toFixed(2)}MB`
+  );
+
+  return images;
 }
 
 // =============================================================================
@@ -549,18 +594,18 @@ export function getFriendlyErrorMessage(error: Error | string): string {
 
 /**
  * Extract MLS data from property photos using AI vision
+ * Uses GPT-4.1 Vision by default for best accuracy
  * @param photos - Array of photo data with files
  * @param address - Full property address string
- * @param model - AI model to use: 'gemini' (default), 'gpt', or 'claude'
+ * @param model - AI model to use: 'gpt' (default for best accuracy), 'gemini', or 'claude'
  */
 export async function generateMLSData(
   photos: PhotoData[],
   address: string,
-  model: MLSModel = "gemini"
+  model: MLSModel = "gpt"
 ): Promise<MLSDataResponse> {
-  // Convert photos to base64
-  const imageInputs = await convertPhotosToImageInputs(photos);
-  const images = imageInputs.map(img => img.base64 || "").filter(Boolean);
+  // Convert photos to high-quality base64 for MLS extraction
+  const images = await convertPhotosForMLS(photos);
 
   if (images.length === 0) {
     throw new Error("No valid images provided");

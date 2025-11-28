@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 import UserMenu from "@/components/UserMenu";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";

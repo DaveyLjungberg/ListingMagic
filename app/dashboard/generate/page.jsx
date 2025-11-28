@@ -7,12 +7,13 @@ import UserMenu from "@/components/UserMenu";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import GeneratedSection from "@/components/listing-magic/GeneratedSection";
-import MLSPlaceholder from "@/components/listing-magic/MLSPlaceholder";
+import MLSDataDisplay from "@/components/listing-magic/MLSDataDisplay";
 import { supabase } from "@/libs/supabase";
 import {
   generateFeatures,
   generateWalkthruScript,
   generatePublicRemarks,
+  generateMLSData,
   generateAllContentMock,
   convertPhotosToImageInputs,
   formatGenerationTime,
@@ -63,6 +64,10 @@ export default function GeneratePage() {
     walkthruScript: { status: "idle", data: null, error: null },
     features: { status: "idle", data: null, error: null },
   });
+
+  // MLS Data state
+  const [mlsData, setMlsData] = useState(null);
+  const [isGeneratingMLS, setIsGeneratingMLS] = useState(false);
 
   // Handle photo changes
   const handlePhotosChange = useCallback((newPhotos) => {
@@ -256,6 +261,33 @@ export default function GeneratePage() {
       toast.error("Failed to copy");
     }
     return success;
+  };
+
+  // Handle generate MLS data
+  const handleGenerateMLS = async () => {
+    if (!isFormReady) {
+      toast.error("Please upload photos and enter a complete address");
+      return;
+    }
+
+    setIsGeneratingMLS(true);
+    toast.loading("Extracting MLS data from photos...", { id: "mls-generating" });
+
+    try {
+      // Format address string
+      const addressString = address
+        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
+        : "";
+
+      const result = await generateMLSData(photos, addressString, "gemini");
+      setMlsData(result);
+      toast.success(`Extracted ${Object.keys(result.confidence_scores || {}).length} MLS fields!`, { id: "mls-generating" });
+    } catch (error) {
+      console.error("MLS generation error:", error);
+      toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });
+    } finally {
+      setIsGeneratingMLS(false);
+    }
   };
 
   // Handle save listing to database
@@ -691,8 +723,60 @@ export default function GeneratePage() {
           </div>
         ) : (
           /* MLS Tab Content */
-          <div className="bg-base-100 border border-base-200 rounded-2xl shadow-sm">
-            <MLSPlaceholder />
+          <div className="bg-base-100 border border-base-200 rounded-2xl shadow-sm p-6">
+            {isGeneratingMLS ? (
+              /* Loading State */
+              <div className="flex flex-col items-center justify-center py-16">
+                <span className="loading loading-spinner loading-lg text-primary"></span>
+                <p className="text-base-content/60 mt-4">Extracting MLS data from photos...</p>
+                <p className="text-base-content/40 text-sm mt-1">This may take 10-30 seconds</p>
+              </div>
+            ) : mlsData ? (
+              /* MLS Data Display */
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-semibold">Extracted MLS Data</h2>
+                  <button
+                    onClick={() => setMlsData(null)}
+                    className="btn btn-ghost btn-sm gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    Re-extract
+                  </button>
+                </div>
+                <MLSDataDisplay data={mlsData} />
+              </div>
+            ) : (
+              /* Empty State - Generate Button */
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center mb-6">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-10 h-10 text-base-content/30">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-base-content mb-2">Extract MLS Data</h3>
+                <p className="text-base-content/60 text-center max-w-md mb-6">
+                  AI will analyze your property photos and extract 22 MLS-compliant fields including bedrooms, bathrooms, flooring, appliances, and more.
+                </p>
+                <button
+                  onClick={handleGenerateMLS}
+                  disabled={!isFormReady}
+                  className="btn btn-primary gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+                  </svg>
+                  Extract MLS Data
+                </button>
+                {!isFormReady && (
+                  <p className="text-warning text-sm mt-4">
+                    Upload photos and enter address first
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

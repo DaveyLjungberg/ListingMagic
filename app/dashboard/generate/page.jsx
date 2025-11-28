@@ -8,6 +8,7 @@ import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import GeneratedSection from "@/components/listing-magic/GeneratedSection";
 import MLSDataDisplay from "@/components/listing-magic/MLSDataDisplay";
+import ListingLoader from "@/components/listing-magic/ListingLoader";
 import { supabase } from "@/libs/supabase";
 import {
   generateFeatures,
@@ -39,8 +40,7 @@ export default function GeneratePage() {
   const [addressDesc, setAddressDesc] = useState(null);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [generationProgressDesc, setGenerationProgressDesc] = useState({ step: 0, total: 3, label: "" });
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedListingId, setSavedListingId] = useState(null);
+  const [photoUrlsDesc, setPhotoUrlsDesc] = useState([]); // For storing Supabase URLs after load
   const [generationState, setGenerationState] = useState({
     publicRemarks: { status: "idle", data: null, error: null },
     walkthruScript: { status: "idle", data: null, error: null },
@@ -56,6 +56,7 @@ export default function GeneratePage() {
   const [addressMLS, setAddressMLS] = useState(null);
   const [isGeneratingMLS, setIsGeneratingMLS] = useState(false);
   const [mlsData, setMlsData] = useState(null);
+  const [photoUrlsMLS, setPhotoUrlsMLS] = useState([]); // For storing Supabase URLs after load
 
   // Get current user on mount
   useEffect(() => {
@@ -72,6 +73,117 @@ export default function GeneratePage() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Auto-save descriptions listing when generation completes
+  useEffect(() => {
+    const allGenerated =
+      generationState.publicRemarks.status === "success" &&
+      generationState.walkthruScript.status === "success" &&
+      generationState.features.status === "success";
+
+    if (allGenerated && user && addressDesc) {
+      // Auto-save the listing
+      const autoSaveDesc = async () => {
+        try {
+          // Calculate total AI cost and generation time
+          const totalCost =
+            (generationState.publicRemarks.data?.usage?.cost_usd || 0) +
+            (generationState.walkthruScript.data?.usage?.cost_usd || 0) +
+            (generationState.features.data?.usage?.cost_usd || 0);
+
+          const totalTime =
+            (generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
+            (generationState.walkthruScript.data?.usage?.generation_time_ms || 0) +
+            (generationState.features.data?.usage?.generation_time_ms || 0);
+
+          // Format address
+          const propertyAddress = addressDesc
+            ? `${addressDesc.street}, ${addressDesc.city || ""}, ${addressDesc.state || ""} ${addressDesc.zip_code}`.trim()
+            : "";
+
+          // Prepare listing data
+          const listingData = {
+            user_id: user.id,
+            listing_type: "descriptions",
+            property_address: propertyAddress,
+            address_json: {
+              street: addressDesc.street,
+              city: addressDesc.city || "",
+              state: addressDesc.state || "",
+              zip_code: addressDesc.zip_code,
+            },
+            property_type: "single_family",
+            bedrooms: null,
+            bathrooms: null,
+            public_remarks: generationState.publicRemarks.data?.text || null,
+            walkthru_script: generationState.walkthruScript.data?.script || null,
+            features: generationState.features.data
+              ? JSON.stringify(generationState.features.data.categorized_features || generationState.features.data.features_list)
+              : null,
+            photo_urls: photoUrlsDesc.length > 0 ? photoUrlsDesc : photosDesc.map((p) => p.preview || null).filter(Boolean),
+            ai_cost: totalCost,
+            generation_time: totalTime,
+          };
+
+          const result = await saveListing(listingData);
+
+          if (result.success) {
+            toast.success("Listing saved automatically", { duration: 3000, icon: "✓" });
+          }
+        } catch (error) {
+          console.error("Auto-save error:", error);
+        }
+      };
+
+      autoSaveDesc();
+    }
+  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
+
+  // Auto-save MLS listing when extraction completes
+  useEffect(() => {
+    if (mlsData && user && addressMLS) {
+      const autoSaveMLS = async () => {
+        try {
+          // Format address
+          const propertyAddress = addressMLS
+            ? `${addressMLS.street}, ${addressMLS.city || ""}, ${addressMLS.state || ""} ${addressMLS.zip_code}`.trim()
+            : "";
+
+          const listingData = {
+            user_id: user.id,
+            listing_type: "mls_data",
+            property_address: propertyAddress,
+            address_json: {
+              street: addressMLS.street,
+              city: addressMLS.city || "",
+              state: addressMLS.state || "",
+              zip_code: addressMLS.zip_code,
+            },
+            property_type: "single_family",
+            bedrooms: mlsData.mls_fields?.bedrooms || null,
+            bathrooms: mlsData.mls_fields?.bathrooms || null,
+            public_remarks: null,
+            walkthru_script: null,
+            features: null,
+            mls_data: mlsData,
+            photo_urls: photoUrlsMLS.length > 0 ? photoUrlsMLS : photosMLS.map((p) => p.preview || null).filter(Boolean),
+            ai_cost: 0,
+            generation_time: mlsData.processing_time_ms || 0,
+          };
+
+          const result = await saveListing(listingData);
+
+          if (result.success) {
+            toast.success("MLS data saved automatically", { duration: 3000, icon: "✓" });
+          }
+        } catch (error) {
+          console.error("Auto-save MLS error:", error);
+        }
+      };
+
+      autoSaveMLS();
+    }
+  }, [mlsData]);
 
   // =========================================================================
   // PROPERTY DESCRIPTIONS TAB HANDLERS
@@ -268,64 +380,92 @@ export default function GeneratePage() {
     return success;
   };
 
-  // Handle save listing to database
-  const handleSaveListing = async () => {
-    if (!hasGeneratedContent) {
-      toast.error("No content to save. Generate content first.");
-      return;
+  // Handle loading a previous descriptions listing
+  const handleLoadDescListing = (listing) => {
+    // Set address from address_json or parse from property_address
+    if (listing.address_json) {
+      setAddressDesc({
+        street: listing.address_json.street,
+        city: listing.address_json.city,
+        state: listing.address_json.state,
+        zip_code: listing.address_json.zip_code,
+      });
     }
 
-    setIsSaving(true);
-    toast.loading("Saving listing...", { id: "saving" });
+    // Set photo URLs (these are Supabase storage URLs)
+    if (listing.photo_urls?.length > 0) {
+      setPhotoUrlsDesc(listing.photo_urls);
+      // Convert URLs to photo objects for the uploader
+      const photos = listing.photo_urls.map((url, index) => ({
+        id: `loaded-${index}`,
+        name: `Photo ${index + 1}`,
+        preview: url,
+        file: null, // No file object for loaded photos
+      }));
+      setPhotosDesc(photos);
+    }
 
-    try {
-      // Calculate total AI cost and generation time
-      const totalCost =
-        (generationState.publicRemarks.data?.usage?.cost_usd || 0) +
-        (generationState.walkthruScript.data?.usage?.cost_usd || 0) +
-        (generationState.features.data?.usage?.cost_usd || 0);
-
-      const totalTime =
-        (generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
-        (generationState.walkthruScript.data?.usage?.generation_time_ms || 0) +
-        (generationState.features.data?.usage?.generation_time_ms || 0);
-
-      // Format address
-      const propertyAddress = addressDesc
-        ? `${addressDesc.street}, ${addressDesc.city || ""}, ${addressDesc.state || ""} ${addressDesc.zip_code}`.trim()
-        : "";
-
-      // Prepare listing data
-      const listingData = {
-        user_id: user?.id || null,
-        property_address: propertyAddress,
-        property_type: "single_family",
-        bedrooms: null,
-        bathrooms: null,
-        public_remarks: generationState.publicRemarks.data?.text || null,
-        walkthru_script: generationState.walkthruScript.data?.script || null,
-        features: generationState.features.data
-          ? JSON.stringify(generationState.features.data.categorized_features || generationState.features.data.features_list)
-          : null,
-        photo_urls: photosDesc.map((p) => p.preview || null).filter(Boolean),
-        ai_cost: totalCost,
-        generation_time: totalTime,
-      };
-
-      const result = await saveListing(listingData);
-
-      if (result.success) {
-        setSavedListingId(result.id);
-        toast.success("Listing saved successfully!", { id: "saving" });
-      } else {
-        toast.error(result.error || "Failed to save listing", { id: "saving" });
+    // Set generated content states
+    if (listing.public_remarks) {
+      setGenerationState(prev => ({
+        ...prev,
+        publicRemarks: { status: "success", data: { text: listing.public_remarks }, error: null },
+      }));
+    }
+    if (listing.walkthru_script) {
+      setGenerationState(prev => ({
+        ...prev,
+        walkthruScript: { status: "success", data: { script: listing.walkthru_script }, error: null },
+      }));
+    }
+    if (listing.features) {
+      try {
+        const featuresData = typeof listing.features === "string" ? JSON.parse(listing.features) : listing.features;
+        setGenerationState(prev => ({
+          ...prev,
+          features: { status: "success", data: { categorized_features: featuresData }, error: null },
+        }));
+      } catch {
+        setGenerationState(prev => ({
+          ...prev,
+          features: { status: "success", data: { features_list: [listing.features] }, error: null },
+        }));
       }
-    } catch (error) {
-      console.error("Save listing error:", error);
-      toast.error("Failed to save listing", { id: "saving" });
-    } finally {
-      setIsSaving(false);
     }
+
+    toast.success("Listing loaded successfully");
+  };
+
+  // Handle loading a previous MLS listing
+  const handleLoadMLSListing = (listing) => {
+    // Set address from address_json
+    if (listing.address_json) {
+      setAddressMLS({
+        street: listing.address_json.street,
+        city: listing.address_json.city,
+        state: listing.address_json.state,
+        zip_code: listing.address_json.zip_code,
+      });
+    }
+
+    // Set photo URLs
+    if (listing.photo_urls?.length > 0) {
+      setPhotoUrlsMLS(listing.photo_urls);
+      const photos = listing.photo_urls.map((url, index) => ({
+        id: `loaded-${index}`,
+        name: `Photo ${index + 1}`,
+        preview: url,
+        file: null,
+      }));
+      setPhotosMLS(photos);
+    }
+
+    // Set MLS data
+    if (listing.mls_data) {
+      setMlsData(listing.mls_data);
+    }
+
+    toast.success("MLS listing loaded successfully");
   };
 
   // Format features for display
@@ -476,12 +616,6 @@ export default function GeneratePage() {
               >
                 Generate
               </Link>
-              <Link
-                href="/dashboard/listings"
-                className="text-sm font-medium text-base-content/70 hover:text-base-content transition-colors"
-              >
-                My Listings
-              </Link>
             </nav>
 
             {/* User Menu */}
@@ -551,16 +685,28 @@ export default function GeneratePage() {
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
+                  {/* Listing Loader */}
+                  <div className="flex justify-end -mt-2 -mr-2">
+                    <ListingLoader
+                      listingType="descriptions"
+                      userId={user?.id}
+                      onSelectListing={handleLoadDescListing}
+                      disabled={isGeneratingDesc}
+                    />
+                  </div>
+
                   <PhotoUploader
                     ref={photoUploaderDescRef}
                     onPhotosChange={handlePhotosChangeDesc}
                     disabled={isGeneratingDesc}
+                    initialPhotos={photosDesc}
                   />
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
                       ref={addressInputDescRef}
                       onAddressChange={handleAddressChangeDesc}
                       disabled={isGeneratingDesc}
+                      initialAddress={addressDesc}
                     />
                   </div>
 
@@ -682,55 +828,6 @@ export default function GeneratePage() {
                 onCopy={handleCopy}
               />
 
-              {/* Save Listing Button - shown when content is generated */}
-              {hasGeneratedContent && (
-                <div className="border border-base-300 rounded-xl overflow-hidden bg-base-100 p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-base-content">Save This Listing</h3>
-                      <p className="text-sm text-base-content/60 mt-1">
-                        Save all generated content to your account
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {savedListingId && (
-                        <span className="flex items-center gap-1.5 text-xs text-success bg-success/10 px-3 py-1.5 rounded-full">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                          </svg>
-                          Saved
-                        </span>
-                      )}
-                      <button
-                        onClick={handleSaveListing}
-                        disabled={isSaving || savedListingId}
-                        className={`btn gap-2 ${savedListingId ? "btn-ghost" : "btn-primary"}`}
-                      >
-                        {isSaving ? (
-                          <>
-                            <span className="loading loading-spinner loading-sm"></span>
-                            Saving...
-                          </>
-                        ) : savedListingId ? (
-                          <>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                            </svg>
-                            Saved
-                          </>
-                        ) : (
-                          <>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
-                            </svg>
-                            Save Listing
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </main>
           </div>
         ) : (
@@ -743,16 +840,28 @@ export default function GeneratePage() {
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
+                  {/* Listing Loader */}
+                  <div className="flex justify-end -mt-2 -mr-2">
+                    <ListingLoader
+                      listingType="mls_data"
+                      userId={user?.id}
+                      onSelectListing={handleLoadMLSListing}
+                      disabled={isGeneratingMLS}
+                    />
+                  </div>
+
                   <PhotoUploader
                     ref={photoUploaderMLSRef}
                     onPhotosChange={handlePhotosChangeMLS}
                     disabled={isGeneratingMLS}
+                    initialPhotos={photosMLS}
                   />
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
                       ref={addressInputMLSRef}
                       onAddressChange={handleAddressChangeMLS}
                       disabled={isGeneratingMLS}
+                      initialAddress={addressMLS}
                     />
                   </div>
 

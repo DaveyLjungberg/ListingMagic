@@ -26,13 +26,21 @@ function getSupabaseAdmin() {
 
 interface ListingData {
   user_id: string | null;
+  listing_type: "descriptions" | "mls_data";
   property_address: string;
+  address_json?: {
+    street: string;
+    city?: string;
+    state?: string;
+    zip_code: string;
+  };
   property_type: string;
   bedrooms: number | null;
   bathrooms: number | null;
   public_remarks: string | null;
   walkthru_script: string | null;
   features: string | null;
+  mls_data?: Record<string, unknown> | null;
   photo_urls: string[];
   ai_cost: number;
   generation_time: number;
@@ -56,13 +64,16 @@ export async function POST(request: NextRequest) {
       .from("listings")
       .insert({
         user_id: body.user_id,
+        listing_type: body.listing_type || "descriptions",
         property_address: body.property_address,
+        address_json: body.address_json || null,
         property_type: body.property_type,
         bedrooms: body.bedrooms,
         bathrooms: body.bathrooms,
         public_remarks: body.public_remarks,
         walkthru_script: body.walkthru_script,
         features: body.features,
+        mls_data: body.mls_data || null,
         photo_urls: body.photo_urls,
         ai_cost: body.ai_cost,
         generation_time: body.generation_time,
@@ -92,14 +103,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
+    const { searchParams } = new URL(request.url);
+    const listingType = searchParams.get("listing_type");
+    const userId = searchParams.get("user_id");
+    const limit = parseInt(searchParams.get("limit") || "20", 10);
 
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("listings")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    // Filter by listing_type if provided
+    if (listingType) {
+      query = query.eq("listing_type", listingType);
+    }
+
+    // Filter by user_id if provided
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("Error fetching listings:", error);

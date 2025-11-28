@@ -2,17 +2,29 @@
 
 import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 
-const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => {
+const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPhotos = [] }, ref) => {
   const [photos, setPhotos] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Sync with initialPhotos when they change (for loading previous listings)
+  useEffect(() => {
+    if (initialPhotos.length > 0) {
+      setPhotos(initialPhotos);
+    }
+  }, [initialPhotos]);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
     getPhotos: () => photos,
     clearPhotos: () => {
-      photos.forEach(photo => URL.revokeObjectURL(photo.preview));
+      photos.forEach(photo => {
+        if (photo.preview && !photo.preview.startsWith("http")) {
+          URL.revokeObjectURL(photo.preview);
+        }
+      });
       setPhotos([]);
-    }
+    },
+    setPhotos: (newPhotos) => setPhotos(newPhotos)
   }));
 
   // Notify parent of photo changes
@@ -76,7 +88,8 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
 
     setPhotos(prev => {
       const photo = prev.find(p => p.id === id);
-      if (photo) {
+      // Only revoke blob URLs, not external URLs
+      if (photo?.preview && !photo.preview.startsWith("http")) {
         URL.revokeObjectURL(photo.preview);
       }
       return prev.filter(p => p.id !== id);

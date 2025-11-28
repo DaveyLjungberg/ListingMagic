@@ -19,6 +19,7 @@ import {
   getFriendlyErrorMessage,
   isRateLimitError,
 } from "@/libs/generate-api";
+import { saveListing } from "@/libs/listings";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -34,6 +35,8 @@ export default function GeneratePage() {
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState({ step: 0, total: 3, label: "" });
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedListingId, setSavedListingId] = useState(null);
   const [generationState, setGenerationState] = useState({
     publicRemarks: { status: "idle", data: null, error: null },
     walkthruScript: { status: "idle", data: null, error: null },
@@ -52,6 +55,12 @@ export default function GeneratePage() {
 
   // Check if form is ready
   const isFormReady = photos.length > 0 && address?.street && address?.zip_code?.length === 5;
+
+  // Check if any content has been generated (for save button visibility)
+  const hasGeneratedContent =
+    generationState.publicRemarks.data?.text ||
+    generationState.walkthruScript.data?.script ||
+    generationState.features.data?.features_list;
 
   // Handle generate all content - SEQUENTIAL to avoid rate limits
   const handleGenerateAll = async () => {
@@ -226,6 +235,65 @@ export default function GeneratePage() {
       toast.error("Failed to copy");
     }
     return success;
+  };
+
+  // Handle save listing to database
+  const handleSaveListing = async () => {
+    if (!hasGeneratedContent) {
+      toast.error("No content to save. Generate content first.");
+      return;
+    }
+
+    setIsSaving(true);
+    toast.loading("Saving listing...", { id: "saving" });
+
+    try {
+      // Calculate total AI cost and generation time
+      const totalCost =
+        (generationState.publicRemarks.data?.usage?.cost_usd || 0) +
+        (generationState.walkthruScript.data?.usage?.cost_usd || 0) +
+        (generationState.features.data?.usage?.cost_usd || 0);
+
+      const totalTime =
+        (generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
+        (generationState.walkthruScript.data?.usage?.generation_time_ms || 0) +
+        (generationState.features.data?.usage?.generation_time_ms || 0);
+
+      // Format address
+      const propertyAddress = address
+        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
+        : "";
+
+      // Prepare listing data
+      const listingData = {
+        property_address: propertyAddress,
+        property_type: "single_family",
+        bedrooms: null,
+        bathrooms: null,
+        public_remarks: generationState.publicRemarks.data?.text || null,
+        walkthru_script: generationState.walkthruScript.data?.script || null,
+        features: generationState.features.data
+          ? JSON.stringify(generationState.features.data.categorized_features || generationState.features.data.features_list)
+          : null,
+        photo_urls: photos.map((p) => p.preview || null).filter(Boolean),
+        ai_cost: totalCost,
+        generation_time: totalTime,
+      };
+
+      const result = await saveListing(listingData);
+
+      if (result.success) {
+        setSavedListingId(result.id);
+        toast.success("Listing saved successfully!", { id: "saving" });
+      } else {
+        toast.error(result.error || "Failed to save listing", { id: "saving" });
+      }
+    } catch (error) {
+      console.error("Save listing error:", error);
+      toast.error("Failed to save listing", { id: "saving" });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Format features for display
@@ -531,6 +599,56 @@ export default function GeneratePage() {
                 }
                 onCopy={handleCopy}
               />
+
+              {/* Save Listing Button - shown when content is generated */}
+              {hasGeneratedContent && (
+                <div className="border border-base-300 rounded-xl overflow-hidden bg-base-100 p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-base-content">Save This Listing</h3>
+                      <p className="text-sm text-base-content/60 mt-1">
+                        Save all generated content to your account
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {savedListingId && (
+                        <span className="flex items-center gap-1.5 text-xs text-success bg-success/10 px-3 py-1.5 rounded-full">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                          Saved
+                        </span>
+                      )}
+                      <button
+                        onClick={handleSaveListing}
+                        disabled={isSaving || savedListingId}
+                        className={`btn gap-2 ${savedListingId ? "btn-ghost" : "btn-primary"}`}
+                      >
+                        {isSaving ? (
+                          <>
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Saving...
+                          </>
+                        ) : savedListingId ? (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            Saved
+                          </>
+                        ) : (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+                            </svg>
+                            Save Listing
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </main>
           </div>
         ) : (

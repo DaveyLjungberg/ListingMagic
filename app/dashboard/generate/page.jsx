@@ -13,7 +13,6 @@ import {
   generateFeatures,
   generateWalkthruScript,
   generatePublicRemarks,
-  generateMLSData,
   generateMLSDataWithStorage,
   generateAllContentMock,
   convertPhotosToImageInputs,
@@ -28,16 +27,35 @@ import { saveListing } from "@/libs/listings";
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
 
-  // Refs for child components
-  const photoUploaderRef = useRef(null);
-  const addressInputRef = useRef(null);
-
   // User state
   const [user, setUser] = useState(null);
 
-  // Form state
-  const [photos, setPhotos] = useState([]);
-  const [address, setAddress] = useState(null);
+  // =========================================================================
+  // PROPERTY DESCRIPTIONS TAB STATE (Independent)
+  // =========================================================================
+  const photoUploaderDescRef = useRef(null);
+  const addressInputDescRef = useRef(null);
+  const [photosDesc, setPhotosDesc] = useState([]);
+  const [addressDesc, setAddressDesc] = useState(null);
+  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
+  const [generationProgressDesc, setGenerationProgressDesc] = useState({ step: 0, total: 3, label: "" });
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedListingId, setSavedListingId] = useState(null);
+  const [generationState, setGenerationState] = useState({
+    publicRemarks: { status: "idle", data: null, error: null },
+    walkthruScript: { status: "idle", data: null, error: null },
+    features: { status: "idle", data: null, error: null },
+  });
+
+  // =========================================================================
+  // MLS DATA TAB STATE (Independent)
+  // =========================================================================
+  const photoUploaderMLSRef = useRef(null);
+  const addressInputMLSRef = useRef(null);
+  const [photosMLS, setPhotosMLS] = useState([]);
+  const [addressMLS, setAddressMLS] = useState(null);
+  const [isGeneratingMLS, setIsGeneratingMLS] = useState(false);
+  const [mlsData, setMlsData] = useState(null);
 
   // Get current user on mount
   useEffect(() => {
@@ -55,51 +73,36 @@ export default function GeneratePage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Generation state
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState({ step: 0, total: 3, label: "" });
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedListingId, setSavedListingId] = useState(null);
-  const [generationState, setGenerationState] = useState({
-    publicRemarks: { status: "idle", data: null, error: null },
-    walkthruScript: { status: "idle", data: null, error: null },
-    features: { status: "idle", data: null, error: null },
-  });
+  // =========================================================================
+  // PROPERTY DESCRIPTIONS TAB HANDLERS
+  // =========================================================================
 
-  // MLS Data state
-  const [mlsData, setMlsData] = useState(null);
-  const [isGeneratingMLS, setIsGeneratingMLS] = useState(false);
-
-  // Handle photo changes
-  const handlePhotosChange = useCallback((newPhotos) => {
-    setPhotos(newPhotos);
+  const handlePhotosChangeDesc = useCallback((newPhotos) => {
+    setPhotosDesc(newPhotos);
   }, []);
 
-  // Handle address changes
-  const handleAddressChange = useCallback((newAddress) => {
-    setAddress(newAddress);
+  const handleAddressChangeDesc = useCallback((newAddress) => {
+    setAddressDesc(newAddress);
   }, []);
 
-  // Check if form is ready
-  const isFormReady = photos.length > 0 && address?.street && address?.zip_code?.length === 5;
+  const isFormReadyDesc = photosDesc.length > 0 && addressDesc?.street && addressDesc?.zip_code?.length === 5;
 
-  // Check if any content has been generated (for save button visibility)
   const hasGeneratedContent =
     generationState.publicRemarks.data ||
     generationState.walkthruScript.data ||
     generationState.features.data;
 
   // Handle generate all content - SEQUENTIAL to avoid rate limits
-  const handleGenerateAll = async () => {
-    if (!isFormReady) {
+  const handleGenerateAllDesc = async () => {
+    if (!isFormReadyDesc) {
       toast.error("Please upload photos and enter a complete address");
       return;
     }
 
-    setIsGenerating(true);
+    setIsGeneratingDesc(true);
     let successCount = 0;
     let rateLimitHit = false;
-    const totalSteps = 4; // Features, Walk-thru, Public Remarks, MLS Data
+    const totalSteps = 3; // Public Remarks, Walk-thru, Features
 
     // Reset all states
     setGenerationState({
@@ -107,29 +110,23 @@ export default function GeneratePage() {
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
     });
-    setMlsData(null);
 
     try {
       // Convert photos to base64
-      setGenerationProgress({ step: 0, total: totalSteps, label: "Preparing photos..." });
-      toast.loading("Preparing photos...", { id: "generating" });
-      const imageInputs = await convertPhotosToImageInputs(photos);
+      setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Preparing photos..." });
+      toast.loading("Preparing photos...", { id: "generating-desc" });
+      const imageInputs = await convertPhotosToImageInputs(photosDesc);
 
       // Build property details
       const propertyDetails = {
-        address,
+        address: addressDesc,
         photos: imageInputs,
         property_type: "single_family",
       };
 
-      // Format address string for MLS
-      const addressString = address
-        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
-        : "";
-
       // STEP 1: Public Remarks (GPT-4.1)
-      setGenerationProgress({ step: 1, total: totalSteps, label: "Generating public remarks..." });
-      toast.loading(`Generating public remarks... (1/${totalSteps})`, { id: "generating" });
+      setGenerationProgressDesc({ step: 1, total: totalSteps, label: "Generating public remarks..." });
+      toast.loading(`Generating public remarks... (1/${totalSteps})`, { id: "generating-desc" });
       setGenerationState(prev => ({
         ...prev,
         publicRemarks: { status: "loading", data: null, error: null },
@@ -155,8 +152,8 @@ export default function GeneratePage() {
 
       // STEP 2: Walk-thru Script (Claude) - only if no rate limit
       if (!rateLimitHit) {
-        setGenerationProgress({ step: 2, total: totalSteps, label: "Generating walk-thru script..." });
-        toast.loading(`Generating walk-thru script... (2/${totalSteps})`, { id: "generating" });
+        setGenerationProgressDesc({ step: 2, total: totalSteps, label: "Generating walk-thru script..." });
+        toast.loading(`Generating walk-thru script... (2/${totalSteps})`, { id: "generating-desc" });
         setGenerationState(prev => ({
           ...prev,
           walkthruScript: { status: "loading", data: null, error: null },
@@ -183,8 +180,8 @@ export default function GeneratePage() {
 
       // STEP 3: Features (Gemini - fast & cheap) - only if no rate limit
       if (!rateLimitHit) {
-        setGenerationProgress({ step: 3, total: totalSteps, label: "Generating features..." });
-        toast.loading(`Generating features... (3/${totalSteps})`, { id: "generating" });
+        setGenerationProgressDesc({ step: 3, total: totalSteps, label: "Generating features..." });
+        toast.loading(`Generating features... (3/${totalSteps})`, { id: "generating-desc" });
         setGenerationState(prev => ({
           ...prev,
           features: { status: "loading", data: null, error: null },
@@ -209,48 +206,29 @@ export default function GeneratePage() {
         }
       }
 
-      // STEP 4: MLS Data Extraction (Claude) - only if no rate limit
-      if (!rateLimitHit) {
-        setGenerationProgress({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
-        toast.loading(`Extracting MLS data from ${photos.length} photos with Claude... (4/${totalSteps})`, { id: "generating" });
-
-        try {
-          // Claude handles all photos directly - no selection needed
-          const mlsResult = await generateMLSData(photos, addressString);
-          setMlsData(mlsResult);
-          successCount++;
-        } catch (error) {
-          console.error("MLS extraction error:", error);
-          // MLS errors don't block success toast, but we log them
-          if (isRateLimitError(error)) {
-            rateLimitHit = true;
-          }
-        }
-      }
-
       // Show appropriate toast
       if (rateLimitHit) {
-        toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating" });
+        toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating-desc" });
       } else if (successCount === totalSteps) {
-        toast.success("All content generated successfully!", { id: "generating" });
+        toast.success("All content generated successfully!", { id: "generating-desc" });
       } else if (successCount > 0) {
-        toast.success(`Generated ${successCount}/${totalSteps} sections`, { id: "generating" });
+        toast.success(`Generated ${successCount}/${totalSteps} sections`, { id: "generating-desc" });
       } else {
-        toast.error("Failed to generate content", { id: "generating" });
+        toast.error("Failed to generate content", { id: "generating-desc" });
       }
     } catch (error) {
       console.error("Generation error:", error);
       const friendlyError = getFriendlyErrorMessage(error);
-      toast.error(friendlyError, { id: "generating" });
+      toast.error(friendlyError, { id: "generating-desc" });
     } finally {
-      setIsGenerating(false);
-      setGenerationProgress({ step: 0, total: totalSteps, label: "" });
+      setIsGeneratingDesc(false);
+      setGenerationProgressDesc({ step: 0, total: totalSteps, label: "" });
     }
   };
 
   // Handle test with mock data
   const handleTestWithMockData = async () => {
-    setIsGenerating(true);
+    setIsGeneratingDesc(true);
 
     // Set all sections to loading
     setGenerationState({
@@ -259,7 +237,7 @@ export default function GeneratePage() {
       features: { status: "loading", data: null, error: null },
     });
 
-    toast.loading("Testing with mock data...", { id: "generating" });
+    toast.loading("Testing with mock data...", { id: "generating-desc" });
 
     try {
       const result = await generateAllContentMock();
@@ -270,12 +248,12 @@ export default function GeneratePage() {
         features: { status: "success", data: result.features, error: null },
       });
 
-      toast.success("Mock content generated!", { id: "generating" });
+      toast.success("Mock content generated!", { id: "generating-desc" });
     } catch (error) {
       console.error("Mock generation error:", error);
-      toast.error("Mock generation failed", { id: "generating" });
+      toast.error("Mock generation failed", { id: "generating-desc" });
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingDesc(false);
     }
   };
 
@@ -288,46 +266,6 @@ export default function GeneratePage() {
       toast.error("Failed to copy");
     }
     return success;
-  };
-
-  // Handle generate MLS data
-  const handleGenerateMLS = async () => {
-    if (!isFormReady) {
-      toast.error("Please upload photos and enter a complete address");
-      return;
-    }
-
-    if (!user) {
-      toast.error("Please log in to generate MLS data");
-      return;
-    }
-
-    setIsGeneratingMLS(true);
-
-    try {
-      // Format address string
-      const addressString = address
-        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
-        : "";
-
-      // Upload photos to Supabase Storage first, then send URLs to Claude
-      // This bypasses Vercel's 4.5MB payload limit
-      const { mlsData, photoUrls } = await generateMLSDataWithStorage(
-        photos,
-        addressString,
-        user.id,
-        "claude",
-        (message) => toast.loading(message, { id: "mls-generating" })
-      );
-
-      setMlsData(mlsData);
-      toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
-    } catch (error) {
-      console.error("MLS generation error:", error);
-      toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });
-    } finally {
-      setIsGeneratingMLS(false);
-    }
   };
 
   // Handle save listing to database
@@ -353,8 +291,8 @@ export default function GeneratePage() {
         (generationState.features.data?.usage?.generation_time_ms || 0);
 
       // Format address
-      const propertyAddress = address
-        ? `${address.street}, ${address.city || ""}, ${address.state || ""} ${address.zip_code}`.trim()
+      const propertyAddress = addressDesc
+        ? `${addressDesc.street}, ${addressDesc.city || ""}, ${addressDesc.state || ""} ${addressDesc.zip_code}`.trim()
         : "";
 
       // Prepare listing data
@@ -369,7 +307,7 @@ export default function GeneratePage() {
         features: generationState.features.data
           ? JSON.stringify(generationState.features.data.categorized_features || generationState.features.data.features_list)
           : null,
-        photo_urls: photos.map((p) => p.preview || null).filter(Boolean),
+        photo_urls: photosDesc.map((p) => p.preview || null).filter(Boolean),
         ai_cost: totalCost,
         generation_time: totalTime,
       };
@@ -406,7 +344,64 @@ export default function GeneratePage() {
     return featuresData.features_list?.join("\n") || null;
   };
 
-  // Button configurations for each section
+  // =========================================================================
+  // MLS DATA TAB HANDLERS
+  // =========================================================================
+
+  const handlePhotosChangeMLS = useCallback((newPhotos) => {
+    setPhotosMLS(newPhotos);
+  }, []);
+
+  const handleAddressChangeMLS = useCallback((newAddress) => {
+    setAddressMLS(newAddress);
+  }, []);
+
+  const isFormReadyMLS = photosMLS.length > 0 && addressMLS?.street && addressMLS?.zip_code?.length === 5;
+
+  // Handle generate MLS data
+  const handleGenerateMLS = async () => {
+    if (!isFormReadyMLS) {
+      toast.error("Please upload photos and enter a complete address");
+      return;
+    }
+
+    if (!user) {
+      toast.error("Please log in to generate MLS data");
+      return;
+    }
+
+    setIsGeneratingMLS(true);
+
+    try {
+      // Format address string
+      const addressString = addressMLS
+        ? `${addressMLS.street}, ${addressMLS.city || ""}, ${addressMLS.state || ""} ${addressMLS.zip_code}`.trim()
+        : "";
+
+      // Upload photos to Supabase Storage first, then send URLs to Claude
+      // This bypasses Vercel's 4.5MB payload limit
+      const { mlsData: result, photoUrls } = await generateMLSDataWithStorage(
+        photosMLS,
+        addressString,
+        user.id,
+        "claude",
+        (message) => toast.loading(message, { id: "mls-generating" })
+      );
+
+      setMlsData(result);
+      toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
+    } catch (error) {
+      console.error("MLS generation error:", error);
+      toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });
+    } finally {
+      setIsGeneratingMLS(false);
+    }
+  };
+
+  // =========================================================================
+  // BUTTON CONFIGURATIONS
+  // =========================================================================
+
   const publicRemarksButtons = [
     {
       label: "Regenerate",
@@ -417,16 +412,6 @@ export default function GeneratePage() {
         </svg>
       ),
       onClick: () => console.log("Regenerate public remarks"),
-    },
-    {
-      label: "Add to MLS Data",
-      variant: "primary",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-      ),
-      onClick: () => console.log("Add to MLS"),
     },
   ];
 
@@ -440,16 +425,6 @@ export default function GeneratePage() {
         </svg>
       ),
       onClick: () => console.log("Regenerate walkthru"),
-    },
-    {
-      label: "Add to MLS Data",
-      variant: "secondary",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-      ),
-      onClick: () => console.log("Add to MLS"),
     },
     {
       label: "Generate Video",
@@ -474,17 +449,11 @@ export default function GeneratePage() {
       ),
       onClick: () => console.log("Regenerate features"),
     },
-    {
-      label: "Add to MLS Data",
-      variant: "primary",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-      ),
-      onClick: () => console.log("Add to MLS"),
-    },
   ];
+
+  // =========================================================================
+  // RENDER
+  // =========================================================================
 
   return (
     <main className="min-h-screen bg-base-100">
@@ -573,6 +542,9 @@ export default function GeneratePage() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === "descriptions" ? (
+          /* =============================================================== */
+          /* PROPERTY DESCRIPTIONS TAB                                       */
+          /* =============================================================== */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Sidebar - Photos & Address */}
             <aside className="lg:col-span-4 space-y-6">
@@ -580,35 +552,35 @@ export default function GeneratePage() {
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
                   <PhotoUploader
-                    ref={photoUploaderRef}
-                    onPhotosChange={handlePhotosChange}
-                    disabled={isGenerating}
+                    ref={photoUploaderDescRef}
+                    onPhotosChange={handlePhotosChangeDesc}
+                    disabled={isGeneratingDesc}
                   />
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
-                      ref={addressInputRef}
-                      onAddressChange={handleAddressChange}
-                      disabled={isGenerating}
+                      ref={addressInputDescRef}
+                      onAddressChange={handleAddressChangeDesc}
+                      disabled={isGeneratingDesc}
                     />
                   </div>
 
                   {/* Generate All Button */}
                   <div className="border-t border-base-200 pt-6 space-y-3">
                     <button
-                      onClick={handleGenerateAll}
-                      disabled={isGenerating || !isFormReady}
+                      onClick={handleGenerateAllDesc}
+                      disabled={isGeneratingDesc || !isFormReadyDesc}
                       className="btn btn-primary w-full gap-2"
                     >
-                      {isGenerating ? (
+                      {isGeneratingDesc ? (
                         <>
                           <span className="loading loading-spinner loading-sm"></span>
                           <span className="flex flex-col items-start">
                             <span className="text-sm">
-                              {generationProgress.label || "Generating..."}
+                              {generationProgressDesc.label || "Generating..."}
                             </span>
-                            {generationProgress.step > 0 && (
+                            {generationProgressDesc.step > 0 && (
                               <span className="text-xs opacity-70">
-                                Step {generationProgress.step} of {generationProgress.total}
+                                Step {generationProgressDesc.step} of {generationProgressDesc.total}
                               </span>
                             )}
                           </span>
@@ -618,12 +590,12 @@ export default function GeneratePage() {
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
                           </svg>
-                          Generate All Content + MLS
+                          Generate All Content
                         </>
                       )}
                     </button>
 
-                    {!isFormReady && (
+                    {!isFormReadyDesc && (
                       <p className="text-xs text-base-content/40 text-center">
                         Upload photos and enter address first
                       </p>
@@ -632,7 +604,7 @@ export default function GeneratePage() {
                     {/* Test with Mock Data button */}
                     <button
                       onClick={handleTestWithMockData}
-                      disabled={isGenerating}
+                      disabled={isGeneratingDesc}
                       className="btn btn-ghost btn-sm w-full gap-2 text-base-content/60"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -762,61 +734,112 @@ export default function GeneratePage() {
             </main>
           </div>
         ) : (
-          /* MLS Tab Content */
-          <div className="bg-base-100 border border-base-200 rounded-2xl shadow-sm p-6">
-            {isGeneratingMLS ? (
-              /* Loading State */
-              <div className="flex flex-col items-center justify-center py-16">
-                <span className="loading loading-spinner loading-lg text-primary"></span>
-                <p className="text-base-content/60 mt-4">Extracting MLS data from photos...</p>
-                <p className="text-base-content/40 text-sm mt-1">This may take 10-30 seconds</p>
-              </div>
-            ) : mlsData ? (
-              /* MLS Data Display */
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold">Extracted MLS Data</h2>
-                  <button
-                    onClick={() => setMlsData(null)}
-                    className="btn btn-ghost btn-sm gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                    </svg>
-                    Re-extract
-                  </button>
+          /* =============================================================== */
+          /* MLS DATA TAB                                                    */
+          /* =============================================================== */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Sidebar - Photos & Address for MLS */}
+            <aside className="lg:col-span-4 space-y-6">
+              <div className="sticky top-40">
+                {/* Card wrapper for sidebar content */}
+                <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
+                  <PhotoUploader
+                    ref={photoUploaderMLSRef}
+                    onPhotosChange={handlePhotosChangeMLS}
+                    disabled={isGeneratingMLS}
+                  />
+                  <div className="border-t border-base-200 pt-6">
+                    <AddressInput
+                      ref={addressInputMLSRef}
+                      onAddressChange={handleAddressChangeMLS}
+                      disabled={isGeneratingMLS}
+                    />
+                  </div>
+
+                  {/* Generate MLS Data Button */}
+                  <div className="border-t border-base-200 pt-6 space-y-3">
+                    <button
+                      onClick={handleGenerateMLS}
+                      disabled={isGeneratingMLS || !isFormReadyMLS}
+                      className="btn btn-primary w-full gap-2"
+                    >
+                      {isGeneratingMLS ? (
+                        <>
+                          <span className="loading loading-spinner loading-sm"></span>
+                          <span className="text-sm">Extracting MLS Data...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                          </svg>
+                          Generate MLS Data
+                        </>
+                      )}
+                    </button>
+
+                    {!isFormReadyMLS && (
+                      <p className="text-xs text-base-content/40 text-center">
+                        Upload photos and enter address first
+                      </p>
+                    )}
+
+                    {!user && isFormReadyMLS && (
+                      <p className="text-xs text-warning text-center">
+                        Please log in to generate MLS data
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <MLSDataDisplay data={mlsData} />
               </div>
-            ) : (
-              /* Empty State - Generate Button */
-              <div className="flex flex-col items-center justify-center py-16">
-                <div className="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center mb-6">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-10 h-10 text-base-content/30">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-base-content mb-2">Extract MLS Data</h3>
-                <p className="text-base-content/60 text-center max-w-md mb-6">
-                  AI will analyze your property photos and extract 22 MLS-compliant fields including bedrooms, bathrooms, flooring, appliances, and more.
-                </p>
-                <button
-                  onClick={handleGenerateMLS}
-                  disabled={!isFormReady || isGeneratingMLS}
-                  className="btn btn-primary gap-2"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
-                  </svg>
-                  Extract MLS Data
-                </button>
-                {!isFormReady && (
-                  <p className="text-warning text-sm mt-4">
-                    Upload photos and enter address first
-                  </p>
+            </aside>
+
+            {/* Main Content - MLS Data Display */}
+            <main className="lg:col-span-8">
+              <div className="bg-base-100 border border-base-200 rounded-2xl shadow-sm p-6">
+                {isGeneratingMLS ? (
+                  /* Loading State */
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <span className="loading loading-spinner loading-lg text-primary"></span>
+                    <p className="text-base-content/60 mt-4">Extracting MLS data from photos...</p>
+                    <p className="text-base-content/40 text-sm mt-1">This may take 10-30 seconds</p>
+                  </div>
+                ) : mlsData ? (
+                  /* MLS Data Display */
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold">Extracted MLS Data</h2>
+                      <button
+                        onClick={() => setMlsData(null)}
+                        className="btn btn-ghost btn-sm gap-2"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        Re-extract
+                      </button>
+                    </div>
+                    <MLSDataDisplay data={mlsData} />
+                  </div>
+                ) : (
+                  /* Empty State */
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <div className="w-20 h-20 rounded-2xl bg-base-200 flex items-center justify-center mb-6">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-10 h-10 text-base-content/30">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-base-content mb-2">Extract MLS Data</h3>
+                    <p className="text-base-content/60 text-center max-w-md mb-2">
+                      AI will analyze your property photos and extract 22 MLS-compliant fields including bedrooms, bathrooms, flooring, appliances, and more.
+                    </p>
+                    <p className="text-base-content/40 text-sm text-center">
+                      Upload photos and enter an address in the sidebar to get started.
+                    </p>
+                  </div>
                 )}
               </div>
-            )}
+            </main>
           </div>
         )}
       </div>

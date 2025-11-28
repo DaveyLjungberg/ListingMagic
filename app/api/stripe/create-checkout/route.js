@@ -1,8 +1,29 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/libs/auth";
 import { createCheckout } from "@/libs/stripe";
 import connectMongo from "@/libs/mongoose";
 import User from "@/models/User";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+// Get Supabase session in server route
+async function getSupabaseUser() {
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get(name) {
+          return cookieStore.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+}
 
 // This function is used to create a Stripe Checkout Session (one-time payment or subscription)
 // It's called by the <ButtonCheckout /> component
@@ -31,11 +52,20 @@ export async function POST(req) {
   }
 
   try {
-    const session = await auth();
+    const supabaseUser = await getSupabaseUser();
 
     await connectMongo();
 
-    const user = await User.findById(session?.user?.id);
+    // Try to find user in MongoDB by Supabase user ID or email
+    let user = null;
+    if (supabaseUser) {
+      user = await User.findOne({
+        $or: [
+          { supabaseId: supabaseUser.id },
+          { email: supabaseUser.email }
+        ]
+      });
+    }
 
     const { priceId, mode, successUrl, cancelUrl } = body;
 
@@ -45,9 +75,9 @@ export async function POST(req) {
       successUrl,
       cancelUrl,
       // If user is logged in, it will pass the user ID to the Stripe Session so it can be retrieved in the webhook later
-      clientReferenceId: user?._id?.toString(),
+      clientReferenceId: user?._id?.toString() || supabaseUser?.id,
       // If user is logged in, this will automatically prefill Checkout data like email and/or credit card for faster checkout
-      user,
+      user: user || (supabaseUser ? { email: supabaseUser.email } : null),
       // If you send coupons from the frontend, you can pass it here
       // couponId: body.couponId,
     });

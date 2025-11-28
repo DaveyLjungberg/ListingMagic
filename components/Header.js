@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
 import ButtonSignin from "./ButtonSignin";
 import logo from "@/app/icon.png";
 import config from "@/config";
+import { supabase } from "@/libs/supabase";
 
 const publicLinks = [
   {
@@ -31,22 +31,41 @@ const authenticatedLinks = [
   },
 ];
 
-const cta = <ButtonSignin extraStyle="btn-primary" />;
-
 // A header with a logo on the left, links in the center (like Pricing, etc...), and a CTA (like Get Started or Login) on the right.
 // The header is responsive, and on mobile, the links are hidden behind a burger button.
-const Header = () => {
+function HeaderContent() {
   const searchParams = useSearchParams();
-  const { status } = useSession();
   const [isOpen, setIsOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Get current user on mount
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      setIsLoading(false);
+    };
+    getUser();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Show different links based on auth status
-  const links = status === "authenticated" ? authenticatedLinks : publicLinks;
+  const links = user ? authenticatedLinks : publicLinks;
 
   // setIsOpen(false) when the route changes (i.e: when the user clicks on a link on mobile)
   useEffect(() => {
     setIsOpen(false);
   }, [searchParams]);
+
+  const cta = <ButtonSignin user={user} isLoading={isLoading} extraStyle="btn-primary" />;
 
   return (
     <header className="bg-base-200">
@@ -185,6 +204,22 @@ const Header = () => {
         </div>
       </div>
     </header>
+  );
+}
+
+const Header = () => {
+  return (
+    <Suspense fallback={
+      <header className="bg-base-200">
+        <nav className="container flex items-center justify-between px-8 py-4 mx-auto">
+          <div className="flex lg:flex-1">
+            <span className="loading loading-spinner loading-sm"></span>
+          </div>
+        </nav>
+      </header>
+    }>
+      <HeaderContent />
+    </Suspense>
   );
 };
 

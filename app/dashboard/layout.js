@@ -1,24 +1,9 @@
-import { redirect } from "next/navigation";
-import { auth } from "@/libs/auth";
-import config from "@/config";
+// This layout now relies on middleware.js to protect dashboard routes
+// The middleware uses Supabase Auth to check if user is logged in
+// and redirects to /auth/login if not authenticated
 
-// TODO: Re-enable auth check before production
-// Auth is temporarily disabled for development/preview
-const BYPASS_AUTH_FOR_DEV = true;
-
-// This is a server-side component to ensure the user is logged in.
-// If not, it will redirect to the login page.
-// It's applied to all subpages of /dashboard in /app/dashboard/*** pages
-// You can also add custom static UI elements like a Navbar, Sidebar, Footer, etc..
-// See https://shipfa.st/docs/tutorials/private-page
 export default async function LayoutPrivate({ children }) {
-  if (!BYPASS_AUTH_FOR_DEV) {
-    const session = await auth();
-
-    if (!session) {
-      redirect(config.auth.loginUrl);
-    }
-  }
-
+  // Auth is handled by middleware.js with Supabase
+  // This layout just passes through children
   return <>{children}</>;
 }

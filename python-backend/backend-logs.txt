@@ -1,0 +1,30 @@
+Script started on Wed Nov 26 23:31:01 2025
+[1m[7m%[27m[1m[0m                                                                                                                      ]7;file://Mac.lan/Users/davidljungberg/Documents/listing-magic/python-backend[0m[27m[24m[Jdavidljungberg@Mac python-backend % [K[?2004h[?2004l
+
+Saving session...
+...copying shared history...
+...saving history...truncating history files...
+...completed.
+Deleting expired sessions...       5 completed.
+
+Script done on Wed Nov 26 23:31:19 2025
+INFO:     Will watch for changes in these directories: ['/Users/davidljungberg/Documents/listing-magic/python-backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [45812] using WatchFiles
+INFO:     Started server process [45815]
+INFO:     Waiting for application startup.
+2025-11-26 23:32:46,795 - main - INFO - ============================================================
+2025-11-26 23:32:46,795 - main - INFO - Listing Magic API Starting
+2025-11-26 23:32:46,795 - main - INFO - ============================================================
+2025-11-26 23:32:46,795 - main - INFO - Environment: development
+2025-11-26 23:32:46,795 - main - INFO - Debug mode: True
+2025-11-26 23:32:46,795 - main - INFO - 
+2025-11-26 23:32:46,795 - main - INFO - AI Models configured:
+2025-11-26 23:32:46,795 - main - INFO -   - public_remarks: GPT-4.1 Vision (gpt-4.1)
+2025-11-26 23:32:46,795 - main - INFO -   - walkthru_script: Claude Sonnet 4.5 (claude-sonnet-4-20250514)
+2025-11-26 23:32:46,795 - main - INFO -   - features: Gemini 3 Pro (gemini-3-pro-preview)
+2025-11-26 23:32:46,795 - main - INFO -   - reso_data: Gemini 3 Pro (gemini-3-pro-preview)
+2025-11-26 23:32:46,795 - main - INFO - 
+2025-11-26 23:32:46,795 - main - INFO - CORS origins: ['http://localhost:3000', 'https://listingmagic.com', 'https://www.listingmagic.com']
+2025-11-26 23:32:46,795 - main - INFO - ============================================================
+INFO:     Application startup complete.

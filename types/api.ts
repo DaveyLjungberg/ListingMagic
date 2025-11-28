@@ -198,7 +198,7 @@ export interface FormData {
 
 export interface PhotoData {
   id: string;
-  file: File;
+  file: File | null;  // null when loaded from database (URL-only)
   preview: string;
   name: string;
   base64?: string;

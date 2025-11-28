@@ -44,9 +44,9 @@ const MLS_IMAGE_CONFIG = {
 };
 
 /**
- * Load an image file into an HTMLImageElement
+ * Load an image from a File object into an HTMLImageElement
  */
-function loadImage(file: File): Promise<HTMLImageElement> {
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -56,11 +56,24 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 }
 
 /**
+ * Load an image from a URL into an HTMLImageElement
+ */
+function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous"; // Required for canvas operations on external images
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image from URL: ${url}`));
+    img.src = url;
+  });
+}
+
+/**
  * Compress and resize an image using Canvas API
  * Returns base64 string (without data URL prefix)
  */
 export async function compressImage(file: File, config = IMAGE_CONFIG): Promise<string> {
-  const img = await loadImage(file);
+  const img = await loadImageFromFile(file);
 
   // Calculate new dimensions while maintaining aspect ratio
   let { width, height } = img;
@@ -108,6 +121,57 @@ export async function compressImage(file: File, config = IMAGE_CONFIG): Promise<
 }
 
 /**
+ * Compress an image from URL using Canvas API
+ * Returns base64 string (without data URL prefix)
+ */
+export async function compressImageFromUrl(url: string, config = IMAGE_CONFIG): Promise<string> {
+  const img = await loadImageFromUrl(url);
+
+  // Calculate new dimensions while maintaining aspect ratio
+  let { width, height } = img;
+
+  if (width > config.maxWidth || height > config.maxHeight) {
+    const ratio = Math.min(
+      config.maxWidth / width,
+      config.maxHeight / height
+    );
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+
+  // Create canvas and draw resized image
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Failed to get canvas context");
+  }
+
+  // Use better image smoothing for quality
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  // Draw the image
+  ctx.drawImage(img, 0, 0, width, height);
+
+  // Convert to base64 JPEG
+  const dataUrl = canvas.toDataURL(config.outputType, config.quality);
+
+  // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+  const base64 = dataUrl.split(",")[1];
+
+  // Extract filename from URL for logging
+  const filename = url.split('/').pop() || 'url-image';
+  console.log(
+    `Compressed URL image ${filename}: -> ${(base64.length * 0.75 / 1024).toFixed(0)}KB (${width}x${height})`
+  );
+
+  return base64;
+}
+
+/**
  * Convert a File to base64 string (with compression)
  */
 export async function convertImageToBase64(file: File): Promise<string> {
@@ -115,8 +179,24 @@ export async function convertImageToBase64(file: File): Promise<string> {
 }
 
 /**
+ * Get the URL for a photo (handles both File objects and URL strings)
+ */
+function getPhotoUrl(photo: PhotoData): string | null {
+  // If photo has a preview URL (from loaded listings or fresh uploads)
+  if (photo.preview && typeof photo.preview === 'string') {
+    return photo.preview;
+  }
+  // If photo has a url property
+  if ((photo as { url?: string }).url) {
+    return (photo as { url?: string }).url!;
+  }
+  return null;
+}
+
+/**
  * Convert PhotoData array to ImageInput array for API requests
  * Compresses images and limits to max 5 images
+ * Handles both File objects (fresh uploads) and URLs (loaded listings)
  */
 export async function convertPhotosToImageInputs(
   photos: PhotoData[]
@@ -134,7 +214,23 @@ export async function convertPhotosToImageInputs(
 
   for (const photo of photosToProcess) {
     try {
-      const base64 = await compressImage(photo.file);
+      let base64: string;
+
+      // Check if we have a File object (fresh upload)
+      if (photo.file && photo.file instanceof File) {
+        base64 = await compressImage(photo.file);
+      }
+      // Otherwise try to use the URL (loaded from database)
+      else {
+        const url = getPhotoUrl(photo);
+        if (url && url.startsWith('http')) {
+          base64 = await compressImageFromUrl(url);
+        } else {
+          console.error(`Photo ${photo.name} has no valid file or URL`);
+          continue;
+        }
+      }
+
       imageInputs.push({
         base64,
         filename: photo.name,
@@ -157,6 +253,7 @@ export async function convertPhotosToImageInputs(
 /**
  * Convert PhotoData array to high-quality base64 strings for MLS extraction
  * Uses higher resolution and quality settings for better AI analysis
+ * Handles both File objects (fresh uploads) and URLs (loaded listings)
  */
 export async function convertPhotosForMLS(
   photos: PhotoData[]
@@ -174,7 +271,23 @@ export async function convertPhotosForMLS(
 
   for (const photo of photosToProcess) {
     try {
-      const base64 = await compressImage(photo.file, MLS_IMAGE_CONFIG);
+      let base64: string;
+
+      // Check if we have a File object (fresh upload)
+      if (photo.file && photo.file instanceof File) {
+        base64 = await compressImage(photo.file, MLS_IMAGE_CONFIG);
+      }
+      // Otherwise try to use the URL (loaded from database)
+      else {
+        const url = getPhotoUrl(photo);
+        if (url && url.startsWith('http')) {
+          base64 = await compressImageFromUrl(url, MLS_IMAGE_CONFIG);
+        } else {
+          console.error(`Photo ${photo.name} has no valid file or URL for MLS`);
+          continue;
+        }
+      }
+
       images.push(base64);
     } catch (error) {
       console.error(`Failed to convert photo ${photo.name} for MLS:`, error);

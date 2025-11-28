@@ -727,7 +727,7 @@ export async function generateMLSDataFromURLs(
 
 /**
  * Generate MLS data with Supabase Storage upload
- * Uploads photos to storage first, then sends URLs to backend
+ * Uploads photos to storage first, then sends URLs directly to backend
  * This bypasses Vercel's 4.5MB payload limit
  * @param photos - Array of photo data with files
  * @param address - Full property address string
@@ -742,22 +742,49 @@ export async function generateMLSDataWithStorage(
   model: MLSModel = "claude",
   onProgress?: (message: string) => void
 ): Promise<{ mlsData: MLSDataResponse; photoUrls: string[] }> {
-  onProgress?.(`Uploading ${photos.length} photos to storage...`);
-  const { urls, errors } = await uploadPhotosToStorage(photos, userId);
+  try {
+    // Step 1: Upload photos to Supabase Storage
+    onProgress?.("Uploading photos to storage...");
+    const { urls: photoUrls, errors } = await uploadPhotosToStorage(photos, userId);
 
-  if (urls.length === 0) {
-    throw new Error("Failed to upload any photos to storage");
+    if (errors.length > 0) {
+      console.warn(`${errors.length} photos failed to upload:`, errors);
+    }
+
+    if (photoUrls.length === 0) {
+      throw new Error("No photos were successfully uploaded");
+    }
+
+    onProgress?.(`${photoUrls.length} photos uploaded. Analyzing with ${model}...`);
+
+    // Step 2: Send the ACTUAL URLS (not photos) directly to backend
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
+
+    const response = await fetch(`${backendUrl}/api/generate-mls-data-urls`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        photo_urls: photoUrls,
+        address,
+        model,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to generate MLS data");
+    }
+
+    const mlsData = await response.json();
+
+    return {
+      mlsData,
+      photoUrls,
+    };
+  } catch (error) {
+    console.error("Error in generateMLSDataWithStorage:", error);
+    throw error;
   }
-
-  if (errors.length > 0) {
-    console.warn(`Some photos failed to upload:`, errors);
-  }
-
-  onProgress?.(`Analyzing ${urls.length} photos with Claude AI...`);
-  const mlsData = await generateMLSDataFromURLs(urls, address, model);
-
-  return {
-    mlsData,
-    photoUrls: urls,
-  };
 }

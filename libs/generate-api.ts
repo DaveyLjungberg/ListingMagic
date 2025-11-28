@@ -38,7 +38,7 @@ const MLS_IMAGE_CONFIG = {
   maxWidth: 1024,        // Balanced resolution for Claude
   maxHeight: 1024,
   quality: 0.8,          // Good quality while keeping payload reasonable
-  maxImages: 20,         // Claude handles many photos well - allow up to 20
+  maxImages: 50,         // Claude handles many photos well - allow up to 50
   outputType: "image/jpeg" as const,
 };
 

@@ -426,6 +426,22 @@ export default function GeneratePage() {
               </h1>
             </div>
 
+            {/* Navigation Links */}
+            <nav className="hidden md:flex items-center gap-6">
+              <Link
+                href="/dashboard/generate"
+                className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+              >
+                Generate
+              </Link>
+              <Link
+                href="/dashboard/listings"
+                className="text-sm font-medium text-base-content/70 hover:text-base-content transition-colors"
+              >
+                My Listings
+              </Link>
+            </nav>
+
             {/* User Menu */}
             <UserMenu user={user} />
           </div>

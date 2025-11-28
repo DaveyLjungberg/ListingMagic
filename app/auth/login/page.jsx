@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { supabase } from "@/libs/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -30,15 +31,22 @@ export default function LoginPage() {
 
       if (error) {
         toast.error(error.message);
+        setIsLoading(false);
         return;
       }
 
       toast.success("Logged in successfully!");
-      router.push("/dashboard/generate");
+
+      // Small delay to ensure session is set
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Check for redirectTo parameter, otherwise go to dashboard
+      const redirectTo = searchParams.get("redirectTo") || "/dashboard/generate";
+      router.push(redirectTo);
+      router.refresh();
     } catch (error) {
       console.error("Login error:", error);
       toast.error("An unexpected error occurred");
-    } finally {
       setIsLoading(false);
     }
   };

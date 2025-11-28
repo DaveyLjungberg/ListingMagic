@@ -18,6 +18,25 @@ function getSupabaseClient() {
   return createBrowserClient(url, key);
 }
 
+/**
+ * Sanitize filename to only allow alphanumeric, dashes, underscores
+ * Preserves file extension
+ * Example: "My Photo!.jpg" -> "My-Photo.jpg"
+ */
+function sanitizeFilename(name: string): string {
+  // Split name and extension
+  const lastDot = name.lastIndexOf(".");
+  const baseName = lastDot > 0 ? name.slice(0, lastDot) : name;
+  const extension = lastDot > 0 ? name.slice(lastDot) : "";
+
+  // Replace spaces with dashes, remove non-alphanumeric except dash/underscore
+  const sanitized = baseName
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+
+  return sanitized + extension.toLowerCase();
+}
+
 export async function uploadPhotosToStorage(
   photos: PhotoData[],
   userId: string
@@ -37,7 +56,8 @@ export async function uploadPhotosToStorage(
       const blob = photo.file;
 
       const timestamp = Date.now();
-      const filename = `${userId}/${timestamp}-${i}-${photo.name}`;
+      const sanitizedName = sanitizeFilename(photo.name);
+      const filename = `${userId}/${timestamp}-${i}-${sanitizedName}`;
 
       const { data, error } = await supabase.storage
         .from("property-photos")

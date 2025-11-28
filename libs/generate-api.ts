@@ -33,12 +33,12 @@ const IMAGE_CONFIG = {
   outputType: "image/jpeg" as const,
 };
 
-// High-quality config for MLS extraction (needs more detail)
+// High-quality config for MLS extraction (balanced for Vercel 4.5MB payload limit)
 const MLS_IMAGE_CONFIG = {
-  maxWidth: 1920,        // Higher resolution for detail
-  maxHeight: 1920,
-  quality: 0.9,          // Higher quality
-  maxImages: 10,         // More images for complete analysis
+  maxWidth: 1280,        // Reduced to stay under payload limits
+  maxHeight: 1280,
+  quality: 0.85,         // Balanced quality vs size
+  maxImages: 6,          // Limit images to keep payload ~3-4MB
   outputType: "image/jpeg" as const,
 };
 

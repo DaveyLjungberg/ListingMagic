@@ -885,17 +885,23 @@ export async function generateMLSDataWithStorage(
     // Step 2: Send the ACTUAL URLS (not photos) directly to backend
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
 
+    // Log tax data being sent to backend
+    console.log("[generateMLSDataWithStorage] Sending tax_data to backend:", taxData);
+
+    const requestBody = {
+      photo_urls: photoUrls,
+      address,
+      model,
+      tax_data: taxData, // Pass tax data to backend for override
+    };
+    console.log("[generateMLSDataWithStorage] Full request body:", JSON.stringify(requestBody, null, 2));
+
     const response = await fetch(`${backendUrl}/api/generate-mls-data-urls`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        photo_urls: photoUrls,
-        address,
-        model,
-        tax_data: taxData, // Pass tax data to backend for override
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -904,6 +910,8 @@ export async function generateMLSDataWithStorage(
     }
 
     const mlsData = await response.json();
+    console.log("[generateMLSDataWithStorage] Response from backend:", mlsData);
+    console.log("[generateMLSDataWithStorage] tax_data_applied:", mlsData.tax_data_applied);
 
     return {
       mlsData,

@@ -82,7 +82,10 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
       lotSize: taxData.lotSize || undefined,
       county: taxData.county || undefined,
     }),
-    getTaxData: () => taxData,
+    getTaxData: () => {
+      console.log('[AddressInput] getTaxData called, returning:', taxData);
+      return taxData;
+    },
     isValid: () => Boolean(address.street && address.zip.length === 5),
     clearAddress: () => {
       setAddressState({ street: "", zip: "", city: "", state: "" });

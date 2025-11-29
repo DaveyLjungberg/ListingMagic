@@ -152,14 +152,15 @@ export default function GeneratePage() {
     }
   }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
 
-  // Auto-expand Public Remarks when all generations complete
+  // Auto-expand Public Remarks when generation fully completes
   useEffect(() => {
     const allGenerated =
       generationState.publicRemarks.status === "success" &&
       generationState.walkthruScript.status === "success" &&
       generationState.features.status === "success";
 
-    if (allGenerated) {
+    // Only expand AFTER generation has stopped and all content is ready
+    if (!isGeneratingDesc && allGenerated) {
       // Auto-expand only Public Remarks, keep others closed
       setExpandedSections({
         publicRemarks: true,
@@ -167,7 +168,7 @@ export default function GeneratePage() {
         features: false,
       });
     }
-  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
+  }, [isGeneratingDesc, generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
 
   // Auto-save MLS listing when extraction completes
   // Only save when we have both mlsData AND valid photo URLs (not blob URLs)
@@ -257,13 +258,6 @@ export default function GeneratePage() {
       publicRemarks: { status: "idle", data: null, error: null },
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
-    });
-
-    // Expand Public Remarks section to show loading progress
-    setExpandedSections({
-      publicRemarks: true,
-      walkthruScript: false,
-      features: false,
     });
 
     try {

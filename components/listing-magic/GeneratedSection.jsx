@@ -289,6 +289,7 @@ const GeneratedSection = ({
                 <button
                   key={index}
                   onClick={button.onClick}
+                  disabled={button.disabled}
                   className={`
                     btn btn-sm gap-2
                     ${button.variant === "primary" ? "btn-primary" : ""}

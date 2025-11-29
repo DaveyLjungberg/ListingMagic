@@ -103,6 +103,54 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, ...updateData } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "Listing ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // Add updated_at timestamp
+    const dataToUpdate = {
+      ...updateData,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabaseAdmin
+      .from("listings")
+      .update(dataToUpdate)
+      .eq("id", id)
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("Error updating listing:", error);
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true, id: data.id });
+  } catch (error) {
+    console.error("Error updating listing:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to update listing",
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabaseAdmin = getSupabaseAdmin();

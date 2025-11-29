@@ -42,6 +42,37 @@ export async function saveListing(listingData) {
 }
 
 /**
+ * Update an existing listing in the database via API
+ *
+ * @param {string} id - The listing ID to update
+ * @param {Object} updateData - The fields to update
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
+ */
+export async function updateListing(id, updateData) {
+  try {
+    const response = await fetch("/api/listings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...updateData }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || "Failed to update listing" };
+    }
+
+    return { success: true, id: data.id };
+  } catch (error) {
+    console.error("Error updating listing:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update listing",
+    };
+  }
+}
+
+/**
  * Get listings via API with optional filtering
  * @param {Object} options - Filter options
  * @param {string} options.listing_type - Filter by 'descriptions' or 'mls_data'

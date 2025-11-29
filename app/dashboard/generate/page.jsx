@@ -24,7 +24,7 @@ import {
   isRateLimitError,
 } from "@/libs/generate-api";
 import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
-import { saveListing } from "@/libs/listings";
+import { saveListing, updateListing } from "@/libs/listings";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -53,6 +53,8 @@ export default function GeneratePage() {
     walkthruScript: false,
     features: false,
   });
+  // Track current listing ID for updates (regenerate overwrites instead of creating new)
+  const [currentListingIdDesc, setCurrentListingIdDesc] = useState(null);
 
   // =========================================================================
   // MLS DATA TAB STATE (Independent)
@@ -141,6 +143,7 @@ export default function GeneratePage() {
           const result = await saveListing(listingData);
 
           if (result.success) {
+            setCurrentListingIdDesc(result.id); // Store listing ID for future updates
             toast.success("Listing saved automatically", { duration: 3000, icon: "✓" });
           }
         } catch (error) {
@@ -501,6 +504,9 @@ export default function GeneratePage() {
       });
     }
 
+    // Track listing ID for future updates (regenerate)
+    setCurrentListingIdDesc(listing.id);
+
     toast.success("Listing loaded successfully");
   };
 
@@ -575,6 +581,9 @@ export default function GeneratePage() {
       features: false,
     });
     hasAutoExpandedRef.current = false;
+
+    // Reset listing ID (new generation will create new listing)
+    setCurrentListingIdDesc(null);
 
     toast.success("Property data cleared");
   };
@@ -682,6 +691,155 @@ export default function GeneratePage() {
   };
 
   // =========================================================================
+  // REGENERATE HANDLERS
+  // =========================================================================
+
+  const handleRegeneratePublicRemarks = async () => {
+    if (!currentListingIdDesc) {
+      toast.error("Please generate content first");
+      return;
+    }
+
+    setGenerationState(prev => ({
+      ...prev,
+      publicRemarks: { status: "loading", data: null, error: null },
+    }));
+
+    try {
+      // Convert photos to base64 for API
+      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+
+      const propertyDetails = {
+        address: addressDesc,
+        photos: imageInputs,
+        property_type: "single_family",
+      };
+
+      const publicRemarksResult = await generatePublicRemarks(propertyDetails);
+
+      setGenerationState(prev => ({
+        ...prev,
+        publicRemarks: { status: "success", data: publicRemarksResult, error: null },
+      }));
+
+      // Update database (overwrite existing listing)
+      const updateResult = await updateListing(currentListingIdDesc, {
+        public_remarks: publicRemarksResult.text,
+        ai_cost: publicRemarksResult.usage?.cost_usd || 0,
+      });
+
+      if (updateResult.success) {
+        toast.success("Public Remarks regenerated and saved");
+      } else {
+        toast.error("Regenerated but failed to save");
+      }
+    } catch (error) {
+      const friendlyError = getFriendlyErrorMessage(error);
+      setGenerationState(prev => ({
+        ...prev,
+        publicRemarks: { status: "error", data: null, error: friendlyError },
+      }));
+      toast.error(friendlyError);
+    }
+  };
+
+  const handleRegenerateWalkthruScript = async () => {
+    if (!currentListingIdDesc) {
+      toast.error("Please generate content first");
+      return;
+    }
+
+    setGenerationState(prev => ({
+      ...prev,
+      walkthruScript: { status: "loading", data: null, error: null },
+    }));
+
+    try {
+      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+
+      const propertyDetails = {
+        address: addressDesc,
+        photos: imageInputs,
+        property_type: "single_family",
+      };
+
+      // Include public remarks for context if available
+      const publicRemarks = generationState.publicRemarks.data?.text;
+      const walkthruResult = await generateWalkthruScript(propertyDetails, publicRemarks);
+
+      setGenerationState(prev => ({
+        ...prev,
+        walkthruScript: { status: "success", data: walkthruResult, error: null },
+      }));
+
+      // Update database
+      const updateResult = await updateListing(currentListingIdDesc, {
+        walkthru_script: walkthruResult.script,
+      });
+
+      if (updateResult.success) {
+        toast.success("Walk-thru Script regenerated and saved");
+      } else {
+        toast.error("Regenerated but failed to save");
+      }
+    } catch (error) {
+      const friendlyError = getFriendlyErrorMessage(error);
+      setGenerationState(prev => ({
+        ...prev,
+        walkthruScript: { status: "error", data: null, error: friendlyError },
+      }));
+      toast.error(friendlyError);
+    }
+  };
+
+  const handleRegenerateFeatures = async () => {
+    if (!currentListingIdDesc) {
+      toast.error("Please generate content first");
+      return;
+    }
+
+    setGenerationState(prev => ({
+      ...prev,
+      features: { status: "loading", data: null, error: null },
+    }));
+
+    try {
+      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+
+      const propertyDetails = {
+        address: addressDesc,
+        photos: imageInputs,
+        property_type: "single_family",
+      };
+
+      const featuresResult = await generateFeatures(propertyDetails);
+
+      setGenerationState(prev => ({
+        ...prev,
+        features: { status: "success", data: featuresResult, error: null },
+      }));
+
+      // Update database
+      const updateResult = await updateListing(currentListingIdDesc, {
+        features: JSON.stringify(featuresResult.categorized_features || featuresResult.features_list),
+      });
+
+      if (updateResult.success) {
+        toast.success("Features Sheet regenerated and saved");
+      } else {
+        toast.error("Regenerated but failed to save");
+      }
+    } catch (error) {
+      const friendlyError = getFriendlyErrorMessage(error);
+      setGenerationState(prev => ({
+        ...prev,
+        features: { status: "error", data: null, error: friendlyError },
+      }));
+      toast.error(friendlyError);
+    }
+  };
+
+  // =========================================================================
   // BUTTON CONFIGURATIONS
   // =========================================================================
 
@@ -694,7 +852,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate public remarks"),
+      onClick: handleRegeneratePublicRemarks,
+      disabled: generationState.publicRemarks.status === "loading",
     },
   ];
 
@@ -707,7 +866,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate walkthru"),
+      onClick: handleRegenerateWalkthruScript,
+      disabled: generationState.walkthruScript.status === "loading",
     },
     {
       label: "Generate Video",
@@ -730,7 +890,8 @@ export default function GeneratePage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
       ),
-      onClick: () => console.log("Regenerate features"),
+      onClick: handleRegenerateFeatures,
+      disabled: generationState.features.status === "loading",
     },
   ];
 

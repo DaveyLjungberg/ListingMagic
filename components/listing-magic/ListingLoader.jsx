@@ -139,7 +139,7 @@ export default function ListingLoader({ listingType, userId, onSelectListing, di
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-80 bg-base-100 border border-base-200 rounded-lg shadow-lg z-50 overflow-hidden">
+        <div className="absolute top-full left-0 mt-1 w-80 bg-base-100 border border-base-200 rounded-lg shadow-lg z-[100] overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-base-200 bg-base-200/30">
             <span className="text-xs font-medium text-base-content/60 uppercase tracking-wide">

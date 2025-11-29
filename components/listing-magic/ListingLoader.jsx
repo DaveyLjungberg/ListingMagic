@@ -18,6 +18,12 @@ export default function ListingLoader({ listingType, userId, onSelectListing, di
   const [hasLoaded, setHasLoaded] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Reset loaded state when listingType changes (e.g., switching tabs)
+  useEffect(() => {
+    setHasLoaded(false);
+    setListings([]);
+  }, [listingType]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
@@ -43,6 +49,7 @@ export default function ListingLoader({ listingType, userId, onSelectListing, di
     if (!hasLoaded) {
       setIsLoading(true);
       try {
+        console.log(`[ListingLoader] Fetching listings with type: ${listingType}, userId: ${userId}`);
         const result = await getListings({
           listing_type: listingType,
           user_id: userId,
@@ -50,6 +57,7 @@ export default function ListingLoader({ listingType, userId, onSelectListing, di
         });
 
         if (result.success) {
+          console.log(`[ListingLoader] Got ${result.data.length} listings for type: ${listingType}`);
           setListings(result.data);
         }
         setHasLoaded(true);

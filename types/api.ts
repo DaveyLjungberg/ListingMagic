@@ -253,6 +253,8 @@ export interface MLSDataResponse {
   model_used?: string;
   processing_time_ms?: number;
   photos_analyzed?: number;
+  // Tax record data applied flags
+  tax_data_applied?: Record<string, boolean>;
 }
 
 // =============================================================================

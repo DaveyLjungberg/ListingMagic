@@ -835,6 +835,10 @@ export default function GeneratePage() {
         ? `${addressMLS.street}, ${addressMLS.city || ""}, ${addressMLS.state || ""} ${addressMLS.zip_code}`.trim()
         : "";
 
+      // Get tax data from AddressInput ref if it exists
+      const taxData = addressInputMLSRef.current?.getTaxData?.();
+      console.log("[handleGenerateMLS] Tax data:", taxData);
+
       // Upload photos to Supabase Storage first, then send URLs to Claude
       // This bypasses Vercel's 4.5MB payload limit
       const { mlsData: result, photoUrls } = await generateMLSDataWithStorage(
@@ -842,7 +846,8 @@ export default function GeneratePage() {
         addressString,
         user.id,
         "claude",
-        (message) => toast.loading(message, { id: "mls-generating" })
+        (message) => toast.loading(message, { id: "mls-generating" }),
+        taxData // Pass tax data to backend
       );
 
       setMlsData(result);

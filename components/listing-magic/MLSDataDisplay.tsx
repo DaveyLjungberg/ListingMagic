@@ -18,6 +18,12 @@ export default function MLSDataDisplay({
   // Use editable data if provided, otherwise fall back to original data
   const displayData = editableData || data;
 
+  // Check if a field was sourced from tax records
+  const isFromTaxRecords = (field: string): boolean => {
+    // The backend will set tax_data_applied with fields that came from tax records
+    return data.tax_data_applied?.[field] === true;
+  };
+
   // Helper function to get confidence color
   const getConfidenceColor = (field: string): string => {
     const score = data.confidence_scores?.[field];
@@ -188,11 +194,12 @@ export default function MLSDataDisplay({
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
             <EditableField
-              label="Year Built (Est.)"
+              label={isFromTaxRecords("year_built_estimate") ? "Year Built" : "Year Built (Est.)"}
               value={displayData.year_built_estimate || ""}
               confidence={getConfidenceColor("year_built_estimate")}
               isEditable={isEditable}
               onChange={(value) => handleChange("year_built_estimate", value)}
+              fromTaxRecords={isFromTaxRecords("year_built_estimate")}
             />
             <EditableField
               label="Total Sq Ft (Est.)"
@@ -203,11 +210,12 @@ export default function MLSDataDisplay({
               onChange={(value) => handleNumberChange("total_finished_sqft_estimate", value)}
             />
             <EditableField
-              label="Lot Size (Est.)"
+              label={isFromTaxRecords("lot_size_estimate") ? "Lot Size" : "Lot Size (Est.)"}
               value={displayData.lot_size_estimate || ""}
               confidence={getConfidenceColor("lot_size_estimate")}
               isEditable={isEditable}
               onChange={(value) => handleChange("lot_size_estimate", value)}
+              fromTaxRecords={isFromTaxRecords("lot_size_estimate")}
             />
             <EditableField
               label="Basement"
@@ -303,6 +311,7 @@ function EditableField({
   isEditable,
   type = "text",
   onChange,
+  fromTaxRecords = false,
 }: {
   label: string;
   value: string;
@@ -310,14 +319,27 @@ function EditableField({
   isEditable: boolean;
   type?: "text" | "number";
   onChange: (value: string) => void;
+  fromTaxRecords?: boolean;
 }) {
   return (
     <div className="form-control">
       <label className="label">
         <span className="label-text font-medium">{label}</span>
-        <span className={`badge ${confidence} badge-xs`}>
-          {confidence.includes("success") ? "High" : confidence.includes("warning") ? "Est" : ""}
-        </span>
+        <div className="flex gap-1">
+          {fromTaxRecords && (
+            <span className="badge badge-info badge-xs gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Tax Records
+            </span>
+          )}
+          {!fromTaxRecords && (
+            <span className={`badge ${confidence} badge-xs`}>
+              {confidence.includes("success") ? "High" : confidence.includes("warning") ? "Est" : ""}
+            </span>
+          )}
+        </div>
       </label>
       {isEditable ? (
         <input

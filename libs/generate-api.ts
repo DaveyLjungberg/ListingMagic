@@ -839,6 +839,16 @@ export async function generateMLSDataFromURLs(
 }
 
 /**
+ * Tax data from ATTOM API lookup
+ */
+export interface TaxData {
+  apn?: string;
+  yearBuilt?: string;
+  lotSize?: string;
+  county?: string;
+}
+
+/**
  * Generate MLS data with Supabase Storage upload
  * Uploads photos to storage first, then sends URLs directly to backend
  * This bypasses Vercel's 4.5MB payload limit
@@ -847,13 +857,15 @@ export async function generateMLSDataFromURLs(
  * @param userId - User ID for storage path
  * @param model - AI model to use: 'claude' (default), 'gpt', or 'gemini'
  * @param onProgress - Optional callback for progress updates
+ * @param taxData - Optional tax data from ATTOM API to override AI estimates
  */
 export async function generateMLSDataWithStorage(
   photos: PhotoData[],
   address: string,
   userId: string,
   model: MLSModel = "claude",
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  taxData?: TaxData
 ): Promise<{ mlsData: MLSDataResponse; photoUrls: string[] }> {
   try {
     // Step 1: Upload photos to Supabase Storage
@@ -882,6 +894,7 @@ export async function generateMLSDataWithStorage(
         photo_urls: photoUrls,
         address,
         model,
+        tax_data: taxData, // Pass tax data to backend for override
       }),
     });
 

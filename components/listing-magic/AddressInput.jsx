@@ -3,7 +3,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 
-const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => {
+const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFields = false }, ref) => {
   const [address, setAddressState] = useState({
     street: "",
     zip: "",
@@ -357,105 +357,107 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false }, ref) => 
           </p>
         )}
 
-        {/* Tax Records Section */}
-        <div className="border-t border-base-200 pt-4 mt-4">
-          <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-medium text-base-content/70">
-              Tax Records
-            </label>
-            <button
-              type="button"
-              onClick={handleFetchTaxRecords}
-              disabled={disabled || !canFetchTaxRecords || loadingTaxRecords}
-              className="btn btn-xs btn-primary gap-1"
-            >
-              {loadingTaxRecords ? (
-                <>
-                  <span className="loading loading-spinner loading-xs"></span>
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                  </svg>
-                  Fetch Tax Records
-                </>
-              )}
-            </button>
+        {/* Tax Records Section - only shown when hideTaxFields is false */}
+        {!hideTaxFields && (
+          <div className="border-t border-base-200 pt-4 mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-medium text-base-content/70">
+                Tax Records
+              </label>
+              <button
+                type="button"
+                onClick={handleFetchTaxRecords}
+                disabled={disabled || !canFetchTaxRecords || loadingTaxRecords}
+                className="btn btn-xs btn-primary gap-1"
+              >
+                {loadingTaxRecords ? (
+                  <>
+                    <span className="loading loading-spinner loading-xs"></span>
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                    Fetch Tax Records
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {/* APN/Tax ID */}
+              <div>
+                <label className="text-xs text-base-content/50 mb-1 block">APN/Tax ID</label>
+                <input
+                  type="text"
+                  placeholder="—"
+                  value={taxData.apn}
+                  onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, apn: e.target.value }))}
+                  disabled={disabled}
+                  className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
+                />
+              </div>
+
+              {/* Year Built */}
+              <div>
+                <label className="text-xs text-base-content/50 mb-1 block">Year Built</label>
+                <input
+                  type="text"
+                  placeholder="—"
+                  value={taxData.yearBuilt}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setTaxDataWithNotify(prev => ({ ...prev, yearBuilt: value }));
+                  }}
+                  maxLength={4}
+                  disabled={disabled}
+                  className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
+                />
+              </div>
+
+              {/* Lot Size */}
+              <div>
+                <label className="text-xs text-base-content/50 mb-1 block">Lot Size</label>
+                <input
+                  type="text"
+                  placeholder="—"
+                  value={taxData.lotSize}
+                  onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, lotSize: e.target.value }))}
+                  disabled={disabled}
+                  className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
+                />
+              </div>
+
+              {/* County */}
+              <div>
+                <label className="text-xs text-base-content/50 mb-1 block">County</label>
+                <input
+                  type="text"
+                  placeholder="—"
+                  value={taxData.county}
+                  onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, county: e.target.value }))}
+                  disabled={disabled}
+                  className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
+                />
+              </div>
+            </div>
+
+            {taxRecordsLoaded && (
+              <p className="text-xs text-success mt-2">
+                Tax records loaded - all fields are editable
+              </p>
+            )}
+            {!taxRecordsLoaded && !loadingTaxRecords && (
+              <p className="text-xs text-base-content/40 mt-2">
+                {canFetchTaxRecords
+                  ? "Click 'Fetch Tax Records' to auto-fill from public records"
+                  : "Complete address above to fetch tax records"}
+              </p>
+            )}
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {/* APN/Tax ID */}
-            <div>
-              <label className="text-xs text-base-content/50 mb-1 block">APN/Tax ID</label>
-              <input
-                type="text"
-                placeholder="—"
-                value={taxData.apn}
-                onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, apn: e.target.value }))}
-                disabled={disabled}
-                className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
-              />
-            </div>
-
-            {/* Year Built */}
-            <div>
-              <label className="text-xs text-base-content/50 mb-1 block">Year Built</label>
-              <input
-                type="text"
-                placeholder="—"
-                value={taxData.yearBuilt}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, "").slice(0, 4);
-                  setTaxDataWithNotify(prev => ({ ...prev, yearBuilt: value }));
-                }}
-                maxLength={4}
-                disabled={disabled}
-                className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
-              />
-            </div>
-
-            {/* Lot Size */}
-            <div>
-              <label className="text-xs text-base-content/50 mb-1 block">Lot Size</label>
-              <input
-                type="text"
-                placeholder="—"
-                value={taxData.lotSize}
-                onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, lotSize: e.target.value }))}
-                disabled={disabled}
-                className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
-              />
-            </div>
-
-            {/* County */}
-            <div>
-              <label className="text-xs text-base-content/50 mb-1 block">County</label>
-              <input
-                type="text"
-                placeholder="—"
-                value={taxData.county}
-                onChange={(e) => setTaxDataWithNotify(prev => ({ ...prev, county: e.target.value }))}
-                disabled={disabled}
-                className="input input-bordered input-sm w-full bg-base-100 focus:border-primary focus:outline-none transition-colors disabled:bg-base-200"
-              />
-            </div>
-          </div>
-
-          {taxRecordsLoaded && (
-            <p className="text-xs text-success mt-2">
-              Tax records loaded - all fields are editable
-            </p>
-          )}
-          {!taxRecordsLoaded && !loadingTaxRecords && (
-            <p className="text-xs text-base-content/40 mt-2">
-              {canFetchTaxRecords
-                ? "Click 'Fetch Tax Records' to auto-fill from public records"
-                : "Complete address above to fetch tax records"}
-            </p>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

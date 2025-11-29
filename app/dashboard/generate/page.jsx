@@ -1288,6 +1288,7 @@ export default function GeneratePage() {
                       ref={addressInputDescRef}
                       onAddressChange={handleAddressChangeDesc}
                       disabled={isGeneratingDesc}
+                      hideTaxFields={true}
                     />
                   </div>
 

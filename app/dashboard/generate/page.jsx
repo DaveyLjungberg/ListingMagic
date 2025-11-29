@@ -1050,7 +1050,7 @@ export default function GeneratePage() {
             {/* Page Title */}
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-base-content">
-                Generate Content
+                New Listing
               </h1>
             </div>
 

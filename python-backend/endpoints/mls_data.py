@@ -42,11 +42,20 @@ class MLSDataRequest(BaseModel):
     model: str = Field(default="claude", description="AI model: claude (default, best), gpt, or gemini")
 
 
+class TaxData(BaseModel):
+    """Tax record data from ATTOM API."""
+    apn: Optional[str] = None
+    yearBuilt: Optional[str] = None
+    lotSize: Optional[str] = None
+    county: Optional[str] = None
+
+
 class MLSDataURLsRequest(BaseModel):
     """Request model for MLS data extraction from URLs."""
     photo_urls: List[str] = Field(..., description="Public URLs to property photos")
     address: str = Field(..., description="Property address")
     model: str = Field(default="claude", description="AI model: claude (default, best), gpt, or gemini")
+    tax_data: Optional[TaxData] = Field(default=None, description="Tax record data to override AI estimates")
 
 
 class MLSDataResponse(BaseModel):
@@ -83,6 +92,7 @@ class MLSDataResponse(BaseModel):
     model_used: Optional[str] = None
     processing_time_ms: Optional[int] = None
     photos_analyzed: Optional[int] = None
+    tax_data_applied: Optional[Dict[str, bool]] = None  # Fields overridden by tax records
 
 
 # =============================================================================
@@ -471,6 +481,9 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
     This endpoint accepts public URLs to photos instead of base64 data,
     which bypasses payload size limits and is more efficient for large uploads.
 
+    If tax_data is provided (from ATTOM API), those values will override
+    AI estimates for year_built, lot_size, etc.
+
     **Models available:**
     - `claude` (default): Best accuracy, handles many photos well
     - `gpt`: Good for complex photos (supports URLs directly)
@@ -480,6 +493,7 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
 
     logger.info(f"Generating MLS data from URLs for: {request.address}, model: {request.model}")
     logger.info(f"Processing {len(request.photo_urls)} photo URLs")
+    logger.info(f"[MLS Gen Backend] Received tax_data: {request.tax_data}")
 
     try:
         prompt = MLS_EXTRACTION_PROMPT.format(address=request.address)
@@ -503,12 +517,43 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
 
+        # Override AI estimates with tax data when available
+        tax_data_applied = {}
+
+        if request.tax_data:
+            # Year Built - use exact year from tax records (not decade estimate)
+            if request.tax_data.yearBuilt:
+                mls_data["year_built_estimate"] = str(request.tax_data.yearBuilt)
+                tax_data_applied["year_built_estimate"] = True
+                logger.info(f"[Override] Year Built: {request.tax_data.yearBuilt}")
+
+            # Lot Size - use exact size with units from tax records
+            if request.tax_data.lotSize:
+                mls_data["lot_size_estimate"] = request.tax_data.lotSize
+                tax_data_applied["lot_size_estimate"] = True
+                logger.info(f"[Override] Lot Size: {request.tax_data.lotSize}")
+
+            # APN/Tax ID - official identifier (store in confidence_scores for now)
+            if request.tax_data.apn:
+                # Add to mls_data (not a standard field but useful)
+                if mls_data.get("confidence_scores") is None:
+                    mls_data["confidence_scores"] = {}
+                mls_data["confidence_scores"]["apn"] = "high"
+                tax_data_applied["apn"] = True
+                logger.info(f"[Override] APN: {request.tax_data.apn}")
+
+            # County - administrative data
+            if request.tax_data.county:
+                tax_data_applied["county"] = True
+                logger.info(f"[Override] County: {request.tax_data.county}")
+
         # Build response
         return MLSDataResponse(
             success=True,
             model_used=request.model,
             processing_time_ms=processing_time_ms,
             photos_analyzed=len(request.photo_urls),
+            tax_data_applied=tax_data_applied if tax_data_applied else None,
             **mls_data
         )
 

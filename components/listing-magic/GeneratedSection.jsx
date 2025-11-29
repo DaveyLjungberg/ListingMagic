@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import ChatbotInput from "./ChatbotInput";
 
 const GeneratedSection = ({
@@ -24,11 +24,6 @@ const GeneratedSection = ({
 
   // The actual open state (controlled or uncontrolled)
   const isOpen = isControlled ? isExpanded : internalOpen;
-
-  // Debug logging
-  useEffect(() => {
-    console.log(`[GeneratedSection ${title}] isControlled:`, isControlled, "isExpanded prop:", isExpanded, "isOpen:", isOpen);
-  }, [title, isControlled, isExpanded, isOpen]);
 
   // Handle toggle - call external handler if controlled, otherwise update internal state
   const handleToggle = () => {

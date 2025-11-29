@@ -152,40 +152,29 @@ export default function GeneratePage() {
     }
   }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
 
-  // Auto-expand Public Remarks when generation fully completes
-  // Use a ref to track if we've already expanded for the current generation
+  // Auto-expand Public Remarks immediately when it finishes (don't wait for others)
   const hasAutoExpandedRef = useRef(false);
 
   useEffect(() => {
-    const allGenerated =
-      generationState.publicRemarks.status === "success" &&
-      generationState.walkthruScript.status === "success" &&
-      generationState.features.status === "success";
+    const publicRemarksReady = generationState.publicRemarks.data?.text;
 
-    const hasContent =
-      generationState.publicRemarks.data?.text &&
-      generationState.walkthruScript.data?.script &&
-      generationState.features.data;
-
-    console.log("[Auto-expand] isGeneratingDesc:", isGeneratingDesc, "allGenerated:", allGenerated, "hasContent:", hasContent, "hasAutoExpanded:", hasAutoExpandedRef.current);
-
-    // Only expand AFTER generation has stopped and all content is ready
-    // Use hasAutoExpandedRef to prevent re-expanding on every render
-    if (!isGeneratingDesc && allGenerated && hasContent && !hasAutoExpandedRef.current) {
-      console.log("[Auto-expand] Expanding Public Remarks!");
+    // Expand Public Remarks the moment it has content
+    if (publicRemarksReady && !hasAutoExpandedRef.current) {
+      console.log("[Auto-expand] Expanding Public Remarks immediately!");
       hasAutoExpandedRef.current = true;
-      setExpandedSections({
+      setExpandedSections(prev => ({
+        ...prev,
         publicRemarks: true,
-        walkthruScript: false,
-        features: false,
-      });
+      }));
     }
+  }, [generationState.publicRemarks.data]);
 
-    // Reset the ref when generation starts
+  // Reset auto-expand flag when generation starts
+  useEffect(() => {
     if (isGeneratingDesc) {
       hasAutoExpandedRef.current = false;
     }
-  }, [isGeneratingDesc, generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, generationState.publicRemarks.data, generationState.walkthruScript.data, generationState.features.data]);
+  }, [isGeneratingDesc]);
 
   // Auto-save MLS listing when extraction completes
   // Only save when we have both mlsData AND valid photo URLs (not blob URLs)
@@ -579,12 +568,13 @@ export default function GeneratePage() {
       features: { status: "idle", data: null, error: null },
     });
 
-    // Reset expanded sections
+    // Reset expanded sections and auto-expand flag
     setExpandedSections({
       publicRemarks: false,
       walkthruScript: false,
       features: false,
     });
+    hasAutoExpandedRef.current = false;
 
     toast.success("Property data cleared");
   };

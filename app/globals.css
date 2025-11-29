@@ -1,16 +1,58 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @plugin "daisyui" {
   themes: light --default;
 }
 
 @theme {
-  --font-display: "Satoshi", "sans-serif";
-  
+  /* Typography */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Inter", "Satoshi", sans-serif;
+  --font-mono: "SF Mono", Monaco, "Cascadia Code", monospace;
+
+  /* Primary Colors - Professional Navy */
+  --color-primary-50: #f0f4f8;
+  --color-primary-100: #d9e2ec;
+  --color-primary-200: #bcccdc;
+  --color-primary-300: #9fb3c8;
+  --color-primary-400: #829ab1;
+  --color-primary-500: #627d98;
+  --color-primary-600: #486581;
+  --color-primary-700: #334e68;
+  --color-primary-800: #243b53;
+  --color-primary-900: #1e3a5f;
+
+  /* Accent Colors - Gold */
+  --color-accent-50: #fef8e7;
+  --color-accent-100: #fcefc7;
+  --color-accent-200: #f8e3a3;
+  --color-accent-300: #f4d678;
+  --color-accent-400: #f0ca5e;
+  --color-accent-500: #d4af37;
+  --color-accent-600: #b4941f;
+  --color-accent-700: #8c7315;
+  --color-accent-800: #6b5a0e;
+  --color-accent-900: #4a3d09;
+
+  /* Success Colors - Forest Green */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-500: #2d5f3f;
+  --color-success-600: #1f4529;
+
+  /* Existing animations */
   --animate-shimmer: shimmer 3s ease-out infinite alternate;
   --animate-opacity: opacity 0.25s ease-in-out;
   --animate-appearFromRight: appearFromRight 300ms ease-in-out;
   --animate-wiggle: wiggle 1.5s ease-in-out infinite;
   --animate-popup: popup 0.25s ease-in-out;
+
+  /* New animations */
+  --animate-slide-in: slideIn 150ms ease-out;
+  --animate-fade-in: fadeIn 200ms ease-in;
+  --animate-bounce-in: bounceIn 300ms ease-out;
+  --animate-pulse-subtle: pulseSubtle 2s ease-in-out infinite;
 
   @keyframes shimmer {
     0% { background-position: 0 50%; }
@@ -40,6 +82,27 @@
     0% { transform: scale(0.8); opacity: 0.8; }
     50% { transform: scale(1.1); opacity: 1; }
     100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes slideIn {
+    0% { transform: translateX(-10px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes fadeIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  @keyframes bounceIn {
+    0% { transform: scale(0.9); opacity: 0; }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes pulseSubtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
   }
 }
 
@@ -73,4 +136,112 @@ progress::-webkit-progress-value {
 
 .btn {
   text-transform: capitalize !important;
+}
+
+/* Primary button with gold accent */
+.btn-gold {
+  background-color: var(--color-accent-500) !important;
+  color: var(--color-primary-900) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  transition: all 150ms ease !important;
+}
+
+.btn-gold:hover {
+  background-color: var(--color-accent-600) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3) !important;
+}
+
+.btn-gold:active {
+  transform: scale(0.98) !important;
+}
+
+.btn-gold:disabled {
+  background-color: var(--color-primary-200) !important;
+  color: var(--color-primary-400) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Primary navy button */
+.btn-navy {
+  background-color: var(--color-primary-900) !important;
+  color: white !important;
+  border: none !important;
+  transition: all 150ms ease !important;
+}
+
+.btn-navy:hover {
+  background-color: var(--color-primary-800) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(30, 58, 95, 0.3) !important;
+}
+
+.btn-navy:active {
+  transform: scale(0.98) !important;
+}
+
+/* Tax records badge */
+.badge-tax {
+  background-color: var(--color-accent-100) !important;
+  color: var(--color-accent-800) !important;
+  border: 1px solid var(--color-accent-200) !important;
+}
+
+/* Success badge */
+.badge-success-custom {
+  background-color: var(--color-success-50) !important;
+  color: var(--color-success-600) !important;
+  border: 1px solid var(--color-success-100) !important;
+}
+
+/* Animation utilities */
+.animate-slide-in {
+  animation: slideIn 150ms ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms ease-in;
+}
+
+.animate-bounce-in {
+  animation: bounceIn 300ms ease-out;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in,
+  .animate-fade-in,
+  .animate-bounce-in {
+    animation: none !important;
+  }
+
+  .btn-gold:hover,
+  .btn-navy:hover {
+    transform: none !important;
+  }
+}
+
+/* Typography utilities */
+.text-primary-navy {
+  color: var(--color-primary-900);
+}
+
+.text-primary-muted {
+  color: var(--color-primary-600);
+}
+
+.bg-primary-subtle {
+  background-color: var(--color-primary-50);
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: all 200ms ease;
+}
+
+.card-hover:hover {
+  box-shadow: 0 8px 25px rgba(30, 58, 95, 0.1);
+  transform: translateY(-2px);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
+import { CameraIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
 
 const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => {
   const [photos, setPhotos] = useState([]);
@@ -116,7 +117,8 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
 
   return (
     <div className={`space-y-4 ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>
-      <label className="block text-sm font-medium text-base-content/70 mb-2">
+      <label className="text-sm font-semibold text-primary-navy mb-2 flex items-center gap-1.5">
+        <CameraIcon className="w-4 h-4" />
         Property Photos
       </label>
 
@@ -129,8 +131,8 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
           relative border-2 border-dashed rounded-xl p-4
           transition-all duration-200 ease-in-out
           ${isDragging
-            ? "border-primary bg-primary/5 scale-[1.02]"
-            : "border-base-300 hover:border-primary/50 hover:bg-base-200/50"
+            ? "border-accent-500 bg-accent-50 scale-[1.02]"
+            : "border-base-300 hover:border-primary-400 hover:bg-primary-50"
           }
           ${disabled ? 'cursor-not-allowed' : ''}
         `}
@@ -147,30 +149,17 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
         <div className="flex items-center justify-center gap-3">
           <div className={`
             p-2 rounded-full transition-colors
-            ${isDragging ? "bg-primary/10" : "bg-base-200"}
+            ${isDragging ? "bg-accent-100" : "bg-primary-50"}
           `}>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className={`w-5 h-5 ${isDragging ? "text-primary" : "text-base-content/50"}`}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
-              />
-            </svg>
+            <PhotoIcon className={`w-5 h-5 ${isDragging ? "text-accent-600" : "text-primary-500"}`} />
           </div>
 
           <div className="text-left">
-            <p className="text-sm font-medium text-base-content">
+            <p className="text-sm font-medium text-primary-navy">
               {isDragging ? "Drop photos here" : "Drag & drop photos"}
-              <span className="text-base-content/50 font-normal"> or click to browse</span>
+              <span className="text-primary-muted font-normal"> or click to browse</span>
             </p>
-            <p className="text-xs text-base-content/40">
+            <p className="text-xs text-primary-muted">
               PNG, JPG, WEBP up to 10MB each
             </p>
           </div>
@@ -210,12 +199,12 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
             return (
               <div
                 key={photoId}
-                className="relative group aspect-square rounded-lg overflow-hidden bg-base-200"
+                className="relative group aspect-square rounded-lg overflow-hidden bg-base-200 animate-fade-in card-hover"
               >
                 <img
                   src={thumbnailSrc}
                   alt={photoName}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                   onError={(e) => {
                     console.error('Failed to load image:', thumbnailSrc);
                     // Show a placeholder on error
@@ -232,25 +221,12 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
 
                 {/* Overlay on hover */}
                 {!disabled && (
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-primary-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <button
                       onClick={() => removePhoto(photoId)}
-                      className="p-2 bg-white/90 rounded-full hover:bg-white transition-colors"
+                      className="p-2 bg-white rounded-full hover:bg-red-50 transition-all duration-150 hover:scale-110 active:scale-95"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2}
-                        stroke="currentColor"
-                        className="w-4 h-4 text-error"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
+                      <XMarkIcon className="w-4 h-4 text-red-500" />
                     </button>
                   </div>
                 )}

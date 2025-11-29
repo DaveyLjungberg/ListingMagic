@@ -1,6 +1,7 @@
 "use client";
 
 import { MLSDataResponse } from "@/types/api";
+import { CheckCircleIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 
 interface MLSDataDisplayProps {
   data: MLSDataResponse;
@@ -324,13 +325,11 @@ function EditableField({
   return (
     <div className="form-control">
       <label className="label">
-        <span className="label-text font-medium">{label}</span>
+        <span className="label-text font-medium text-primary-navy">{label}</span>
         <div className="flex gap-1">
           {fromTaxRecords && (
-            <span className="badge badge-info badge-xs gap-1">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            <span className="badge-tax badge-xs gap-1 px-2 py-0.5 rounded-md flex items-center animate-bounce-in">
+              <CheckCircleIcon className="w-3 h-3" />
               Tax Records
             </span>
           )}
@@ -346,11 +345,11 @@ function EditableField({
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="input input-bordered bg-base-100 w-full"
+          className="input input-bordered bg-base-100 w-full transition-all duration-150 focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
           placeholder="—"
         />
       ) : (
-        <div className="input input-bordered bg-base-200 flex items-center">
+        <div className="input input-bordered bg-base-200 flex items-center font-mono text-sm">
           {value || "—"}
         </div>
       )}

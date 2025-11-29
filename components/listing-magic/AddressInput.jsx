@@ -2,6 +2,7 @@
 
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
+import { DocumentTextIcon, CheckCircleIcon, MapPinIcon } from "@heroicons/react/24/outline";
 
 const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFields = false }, ref) => {
   const [address, setAddressState] = useState({
@@ -253,7 +254,8 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
 
   return (
     <div className={`space-y-4 ${disabled ? 'opacity-60' : ''}`}>
-      <label className="block text-sm font-medium text-base-content/70 mb-2">
+      <label className="text-sm font-semibold text-primary-navy mb-2 flex items-center gap-1.5">
+        <MapPinIcon className="w-4 h-4" />
         Property Address
       </label>
 
@@ -359,16 +361,17 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
 
         {/* Tax Records Section - only shown when hideTaxFields is false */}
         {!hideTaxFields && (
-          <div className="border-t border-base-200 pt-4 mt-4">
+          <div className="border-t border-base-200 pt-4 mt-4 animate-fade-in">
             <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-medium text-base-content/70">
+              <label className="text-sm font-semibold text-primary-navy flex items-center gap-1.5">
+                <DocumentTextIcon className="w-4 h-4" />
                 Tax Records
               </label>
               <button
                 type="button"
                 onClick={handleFetchTaxRecords}
                 disabled={disabled || !canFetchTaxRecords || loadingTaxRecords}
-                className="btn btn-xs btn-primary gap-1"
+                className="btn btn-xs btn-gold gap-1.5"
               >
                 {loadingTaxRecords ? (
                   <>
@@ -377,9 +380,7 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
                   </>
                 ) : (
                   <>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                    </svg>
+                    <DocumentTextIcon className="w-3.5 h-3.5" />
                     Fetch Tax Records
                   </>
                 )}
@@ -445,12 +446,13 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
             </div>
 
             {taxRecordsLoaded && (
-              <p className="text-xs text-success mt-2">
+              <p className="text-xs mt-2 flex items-center gap-1.5 badge-success-custom px-2 py-1 rounded-md w-fit animate-bounce-in">
+                <CheckCircleIcon className="w-3.5 h-3.5" />
                 Tax records loaded - all fields are editable
               </p>
             )}
             {!taxRecordsLoaded && !loadingTaxRecords && (
-              <p className="text-xs text-base-content/40 mt-2">
+              <p className="text-xs text-primary-muted mt-2">
                 {canFetchTaxRecords
                   ? "Click 'Fetch Tax Records' to auto-fill from public records"
                   : "Complete address above to fetch tax records"}

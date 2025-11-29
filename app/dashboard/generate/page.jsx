@@ -153,28 +153,39 @@ export default function GeneratePage() {
   }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
 
   // Auto-expand Public Remarks when generation fully completes
+  // Use a ref to track if we've already expanded for the current generation
+  const hasAutoExpandedRef = useRef(false);
+
   useEffect(() => {
     const allGenerated =
       generationState.publicRemarks.status === "success" &&
       generationState.walkthruScript.status === "success" &&
       generationState.features.status === "success";
 
-    console.log("[Auto-expand] isGeneratingDesc:", isGeneratingDesc, "allGenerated:", allGenerated, "statuses:", {
-      publicRemarks: generationState.publicRemarks.status,
-      walkthruScript: generationState.walkthruScript.status,
-      features: generationState.features.status,
-    });
+    const hasContent =
+      generationState.publicRemarks.data?.text &&
+      generationState.walkthruScript.data?.script &&
+      generationState.features.data;
+
+    console.log("[Auto-expand] isGeneratingDesc:", isGeneratingDesc, "allGenerated:", allGenerated, "hasContent:", hasContent, "hasAutoExpanded:", hasAutoExpandedRef.current);
 
     // Only expand AFTER generation has stopped and all content is ready
-    if (!isGeneratingDesc && allGenerated) {
+    // Use hasAutoExpandedRef to prevent re-expanding on every render
+    if (!isGeneratingDesc && allGenerated && hasContent && !hasAutoExpandedRef.current) {
       console.log("[Auto-expand] Expanding Public Remarks!");
+      hasAutoExpandedRef.current = true;
       setExpandedSections({
         publicRemarks: true,
         walkthruScript: false,
         features: false,
       });
     }
-  }, [isGeneratingDesc, generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
+
+    // Reset the ref when generation starts
+    if (isGeneratingDesc) {
+      hasAutoExpandedRef.current = false;
+    }
+  }, [isGeneratingDesc, generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, generationState.publicRemarks.data, generationState.walkthruScript.data, generationState.features.data]);
 
   // Auto-save MLS listing when extraction completes
   // Only save when we have both mlsData AND valid photo URLs (not blob URLs)

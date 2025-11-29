@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import Link from "next/link";
 import toast from "react-hot-toast";
 import UserMenu from "@/components/UserMenu";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
@@ -15,7 +14,6 @@ import {
   generateWalkthruScript,
   generatePublicRemarks,
   generateMLSDataWithStorage,
-  generateAllContentMock,
   convertPhotosToImageInputs,
   formatGenerationTime,
   formatCost,
@@ -520,37 +518,6 @@ export default function GeneratePage() {
     } finally {
       setIsGeneratingDesc(false);
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "" });
-    }
-  };
-
-  // Handle test with mock data
-  const handleTestWithMockData = async () => {
-    setIsGeneratingDesc(true);
-
-    // Set all sections to loading
-    setGenerationState({
-      publicRemarks: { status: "loading", data: null, error: null },
-      walkthruScript: { status: "loading", data: null, error: null },
-      features: { status: "loading", data: null, error: null },
-    });
-
-    toast.loading("Testing with mock data...", { id: "generating-desc" });
-
-    try {
-      const result = await generateAllContentMock();
-
-      setGenerationState({
-        publicRemarks: { status: "success", data: result.publicRemarks, error: null },
-        walkthruScript: { status: "success", data: result.walkthruScript, error: null },
-        features: { status: "success", data: result.features, error: null },
-      });
-
-      toast.success("Mock content generated!", { id: "generating-desc" });
-    } catch (error) {
-      console.error("Mock generation error:", error);
-      toast.error("Mock generation failed", { id: "generating-desc" });
-    } finally {
-      setIsGeneratingDesc(false);
     }
   };
 
@@ -1087,16 +1054,6 @@ export default function GeneratePage() {
               </h1>
             </div>
 
-            {/* Navigation Links */}
-            <nav className="hidden md:flex items-center gap-6">
-              <Link
-                href="/dashboard/generate"
-                className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
-              >
-                Generate
-              </Link>
-            </nav>
-
             {/* User Menu */}
             <UserMenu user={user} />
           </div>
@@ -1328,18 +1285,6 @@ export default function GeneratePage() {
                         Upload photos and enter address first
                       </p>
                     )}
-
-                    {/* Test with Mock Data button */}
-                    <button
-                      onClick={handleTestWithMockData}
-                      disabled={isGeneratingDesc}
-                      className="btn btn-ghost btn-sm w-full gap-2 text-base-content/60"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-                      </svg>
-                      Test with Mock Data
-                    </button>
                   </div>
                 </div>
               </div>

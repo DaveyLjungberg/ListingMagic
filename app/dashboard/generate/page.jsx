@@ -66,6 +66,7 @@ export default function GeneratePage() {
   const [isGeneratingMLS, setIsGeneratingMLS] = useState(false);
   const [mlsData, setMlsData] = useState(null);
   const [photoUrlsMLS, setPhotoUrlsMLS] = useState([]); // For storing Supabase URLs after load
+  const [currentListingIdMLS, setCurrentListingIdMLS] = useState(null); // Track current MLS listing for updates
 
   // Get current user on mount
   useEffect(() => {
@@ -84,8 +85,14 @@ export default function GeneratePage() {
   }, []);
 
   // Auto-save descriptions listing when generation completes
-  // Only save when we have valid photo URLs (not blob URLs)
+  // Only save when we have valid photo URLs (not blob URLs) and NO existing listing ID
   useEffect(() => {
+    // Skip auto-save if we already have a listing ID (loading existing or already saved)
+    if (currentListingIdDesc) {
+      console.log("[Auto-save Desc] Skipping - already have listing ID:", currentListingIdDesc);
+      return;
+    }
+
     const allGenerated =
       generationState.publicRemarks.status === "success" &&
       generationState.walkthruScript.status === "success" &&
@@ -153,7 +160,7 @@ export default function GeneratePage() {
 
       autoSaveDesc();
     }
-  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
+  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc, currentListingIdDesc]);
 
   // Auto-expand Public Remarks immediately when it finishes (don't wait for others)
   const hasAutoExpandedRef = useRef(false);
@@ -180,8 +187,14 @@ export default function GeneratePage() {
   }, [isGeneratingDesc]);
 
   // Auto-save MLS listing when extraction completes
-  // Only save when we have both mlsData AND valid photo URLs (not blob URLs)
+  // Only save when we have both mlsData AND valid photo URLs (not blob URLs) and NO existing listing ID
   useEffect(() => {
+    // Skip auto-save if we already have a listing ID (loading existing or already saved)
+    if (currentListingIdMLS) {
+      console.log("[Auto-save MLS] Skipping - already have listing ID:", currentListingIdMLS);
+      return;
+    }
+
     // Only save if we have MLS data and valid Supabase URLs (not blob URLs)
     const hasValidPhotoUrls = photoUrlsMLS.length > 0 &&
       photoUrlsMLS.every(url => url.startsWith('http') && !url.startsWith('blob:'));
@@ -220,6 +233,7 @@ export default function GeneratePage() {
           const result = await saveListing(listingData);
 
           if (result.success) {
+            setCurrentListingIdMLS(result.id); // Store listing ID for future updates
             toast.success("MLS data saved automatically", { duration: 3000, icon: "✓" });
           }
         } catch (error) {
@@ -229,7 +243,7 @@ export default function GeneratePage() {
 
       autoSaveMLS();
     }
-  }, [mlsData, photoUrlsMLS]);
+  }, [mlsData, photoUrlsMLS, currentListingIdMLS]);
 
   // =========================================================================
   // PROPERTY DESCRIPTIONS TAB HANDLERS
@@ -546,6 +560,9 @@ export default function GeneratePage() {
     } else {
       console.log("[handleLoadMLSListing] No MLS data in listing");
     }
+
+    // Track listing ID for future updates (prevents auto-save on load)
+    setCurrentListingIdMLS(listing.id);
   };
 
   // Clear all property data for Descriptions tab
@@ -601,6 +618,9 @@ export default function GeneratePage() {
 
     // Clear MLS data
     setMlsData(null);
+
+    // Reset listing ID (new generation will create new listing)
+    setCurrentListingIdMLS(null);
 
     toast.success("MLS data cleared");
   };

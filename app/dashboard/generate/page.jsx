@@ -1006,7 +1006,7 @@ export default function GeneratePage() {
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
                   {/* Listing Loader & Clear Button */}
-                  <div className="flex justify-end gap-2 -mt-2 -mr-2">
+                  <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
                     <button
                       onClick={handleClearDescData}
                       disabled={isGeneratingDesc || !hasDescDataToClear}
@@ -1173,7 +1173,7 @@ export default function GeneratePage() {
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
                   {/* Listing Loader & Clear Button */}
-                  <div className="flex justify-end gap-2 -mt-2 -mr-2">
+                  <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
                     <button
                       onClick={handleClearMLSData}
                       disabled={isGeneratingMLS || !hasMLSDataToClear}

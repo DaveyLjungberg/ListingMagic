@@ -25,6 +25,7 @@ import {
 } from "@/libs/generate-api";
 import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing, updateListing } from "@/libs/listings";
+import { scanPhotoCompliance } from "@/libs/photoCompliance";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -55,6 +56,9 @@ export default function GeneratePage() {
   });
   // Track current listing ID for updates (regenerate overwrites instead of creating new)
   const [currentListingIdDesc, setCurrentListingIdDesc] = useState(null);
+  // Photo compliance scanning state
+  const [complianceReportDesc, setComplianceReportDesc] = useState(null);
+  const [scanningComplianceDesc, setScanningComplianceDesc] = useState(false);
 
   // =========================================================================
   // MLS DATA TAB STATE (Independent)
@@ -68,6 +72,9 @@ export default function GeneratePage() {
   const [mlsDataEditable, setMlsDataEditable] = useState(null); // Editable copy of MLS data
   const [photoUrlsMLS, setPhotoUrlsMLS] = useState([]); // For storing Supabase URLs after load
   const [currentListingIdMLS, setCurrentListingIdMLS] = useState(null); // Track current MLS listing for updates
+  // Photo compliance scanning state for MLS
+  const [complianceReportMLS, setComplianceReportMLS] = useState(null);
+  const [scanningComplianceMLS, setScanningComplianceMLS] = useState(false);
 
   // Get current user on mount
   useEffect(() => {
@@ -133,6 +140,11 @@ export default function GeneratePage() {
               city: addressDesc.city || "",
               state: addressDesc.state || "",
               zip_code: addressDesc.zip_code,
+              // Tax record data
+              apn: addressDesc.apn || null,
+              yearBuilt: addressDesc.yearBuilt || null,
+              lotSize: addressDesc.lotSize || null,
+              county: addressDesc.county || null,
             },
             property_type: "single_family",
             bedrooms: null,
@@ -217,6 +229,11 @@ export default function GeneratePage() {
               city: addressMLS.city || "",
               state: addressMLS.state || "",
               zip_code: addressMLS.zip_code,
+              // Tax record data
+              apn: addressMLS.apn || null,
+              yearBuilt: addressMLS.yearBuilt || null,
+              lotSize: addressMLS.lotSize || null,
+              county: addressMLS.county || null,
             },
             property_type: "single_family",
             bedrooms: mlsData.mls_fields?.bedrooms || null,
@@ -294,11 +311,53 @@ export default function GeneratePage() {
 
   const handlePhotosChangeDesc = useCallback((newPhotos) => {
     setPhotosDesc(newPhotos);
+    // Clear compliance report when photos change
+    setComplianceReportDesc(null);
   }, []);
 
   const handleAddressChangeDesc = useCallback((newAddress) => {
     setAddressDesc(newAddress);
   }, []);
+
+  // Handle compliance scan for descriptions tab
+  const handleScanComplianceDesc = async () => {
+    if (photosDesc.length === 0) {
+      toast.error("No photos to scan");
+      return;
+    }
+
+    setScanningComplianceDesc(true);
+    setComplianceReportDesc(null);
+
+    try {
+      const report = await scanPhotoCompliance(photosDesc, {
+        onProgress: (index, total) => {
+          console.log(`Scanning photo ${index + 1} of ${total}...`);
+        },
+      });
+      setComplianceReportDesc(report);
+
+      if (report.hasViolations) {
+        toast.error(`${report.violations.length} photo(s) have compliance issues`);
+      } else {
+        toast.success("All photos are compliant!");
+      }
+    } catch (error) {
+      console.error("Compliance scan error:", error);
+      toast.error("Failed to scan photos");
+    } finally {
+      setScanningComplianceDesc(false);
+    }
+  };
+
+  // Remove photo by index (for compliance violations)
+  const handleRemovePhotoDesc = (photoIndex) => {
+    const newPhotos = photosDesc.filter((_, idx) => idx !== photoIndex);
+    setPhotosDesc(newPhotos);
+    photoUploaderDescRef.current?.setPhotos(newPhotos);
+    setComplianceReportDesc(null); // Clear report after removal
+    toast.success("Photo removed");
+  };
 
   const isFormReadyDesc = photosDesc.length > 0 && addressDesc?.street && addressDesc?.zip_code?.length === 5;
 
@@ -508,13 +567,18 @@ export default function GeneratePage() {
 
   // Handle loading a previous descriptions listing
   const handleLoadDescListing = (listing) => {
-    // Set address via ref (to avoid circular updates)
+    // Set address via ref (to avoid circular updates) - including tax data
     if (listing.address_json && addressInputDescRef.current) {
       addressInputDescRef.current.setAddress({
         street: listing.address_json.street,
         city: listing.address_json.city,
         state: listing.address_json.state,
         zip_code: listing.address_json.zip_code,
+        // Tax record data
+        apn: listing.address_json.apn || "",
+        yearBuilt: listing.address_json.yearBuilt || "",
+        lotSize: listing.address_json.lotSize || "",
+        county: listing.address_json.county || "",
       });
     }
 
@@ -574,7 +638,7 @@ export default function GeneratePage() {
     console.log("[handleLoadMLSListing] addressInputMLSRef.current:", addressInputMLSRef.current);
     console.log("[handleLoadMLSListing] photoUploaderMLSRef.current:", photoUploaderMLSRef.current);
 
-    // Set address via ref (to avoid circular updates)
+    // Set address via ref (to avoid circular updates) - including tax data
     if (listing.address_json && addressInputMLSRef.current) {
       console.log("[handleLoadMLSListing] Setting address...");
       addressInputMLSRef.current.setAddress({
@@ -582,6 +646,11 @@ export default function GeneratePage() {
         city: listing.address_json.city,
         state: listing.address_json.state,
         zip_code: listing.address_json.zip_code,
+        // Tax record data
+        apn: listing.address_json.apn || "",
+        yearBuilt: listing.address_json.yearBuilt || "",
+        lotSize: listing.address_json.lotSize || "",
+        county: listing.address_json.county || "",
       });
     } else {
       console.log("[handleLoadMLSListing] Skipping address - no data or no ref");
@@ -696,11 +765,53 @@ export default function GeneratePage() {
 
   const handlePhotosChangeMLS = useCallback((newPhotos) => {
     setPhotosMLS(newPhotos);
+    // Clear compliance report when photos change
+    setComplianceReportMLS(null);
   }, []);
 
   const handleAddressChangeMLS = useCallback((newAddress) => {
     setAddressMLS(newAddress);
   }, []);
+
+  // Handle compliance scan for MLS tab
+  const handleScanComplianceMLS = async () => {
+    if (photosMLS.length === 0) {
+      toast.error("No photos to scan");
+      return;
+    }
+
+    setScanningComplianceMLS(true);
+    setComplianceReportMLS(null);
+
+    try {
+      const report = await scanPhotoCompliance(photosMLS, {
+        onProgress: (index, total) => {
+          console.log(`Scanning photo ${index + 1} of ${total}...`);
+        },
+      });
+      setComplianceReportMLS(report);
+
+      if (report.hasViolations) {
+        toast.error(`${report.violations.length} photo(s) have compliance issues`);
+      } else {
+        toast.success("All photos are compliant!");
+      }
+    } catch (error) {
+      console.error("Compliance scan error:", error);
+      toast.error("Failed to scan photos");
+    } finally {
+      setScanningComplianceMLS(false);
+    }
+  };
+
+  // Remove photo by index (for MLS compliance violations)
+  const handleRemovePhotoMLS = (photoIndex) => {
+    const newPhotos = photosMLS.filter((_, idx) => idx !== photoIndex);
+    setPhotosMLS(newPhotos);
+    photoUploaderMLSRef.current?.setPhotos(newPhotos);
+    setComplianceReportMLS(null); // Clear report after removal
+    toast.success("Photo removed");
+  };
 
   const isFormReadyMLS = photosMLS.length > 0 && addressMLS?.street && addressMLS?.zip_code?.length === 5;
 
@@ -1074,6 +1185,99 @@ export default function GeneratePage() {
                     onPhotosChange={handlePhotosChangeDesc}
                     disabled={isGeneratingDesc}
                   />
+
+                  {/* Photo Compliance Scanner */}
+                  {photosDesc.length > 0 && (
+                    <div className="border-t border-base-200 pt-4 space-y-3">
+                      {/* Scan Button */}
+                      {!complianceReportDesc && !scanningComplianceDesc && (
+                        <button
+                          onClick={handleScanComplianceDesc}
+                          className="btn btn-outline btn-sm w-full gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                          </svg>
+                          Scan for Compliance Issues
+                        </button>
+                      )}
+
+                      {/* Scanning Progress */}
+                      {scanningComplianceDesc && (
+                        <div className="alert alert-info">
+                          <span className="loading loading-spinner loading-sm"></span>
+                          <span>Scanning {photosDesc.length} photos for compliance issues...</span>
+                        </div>
+                      )}
+
+                      {/* Compliance Results */}
+                      {complianceReportDesc && !scanningComplianceDesc && (
+                        <div className="space-y-3">
+                          {complianceReportDesc.hasViolations ? (
+                            <>
+                              <div className="alert alert-warning">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                                <span>{complianceReportDesc.violations.length} photo(s) have potential issues</span>
+                              </div>
+
+                              {/* Violation List */}
+                              <div className="space-y-2">
+                                {complianceReportDesc.violations.map((v) => (
+                                  <div key={v.photoIndex} className="flex items-start gap-3 p-3 bg-warning/10 rounded-lg border border-warning/20">
+                                    {/* Photo Thumbnail */}
+                                    <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-base-200">
+                                      <img
+                                        src={photosDesc[v.photoIndex]?.preview || photosDesc[v.photoIndex]}
+                                        alt={v.photoName}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    {/* Issue Details */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-base-content">{v.photoName}</p>
+                                      <ul className="text-xs text-warning-content/70 mt-1 space-y-0.5">
+                                        {v.issues.map((issue, idx) => (
+                                          <li key={idx}>• {issue}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                    {/* Remove Button */}
+                                    <button
+                                      onClick={() => handleRemovePhotoDesc(v.photoIndex)}
+                                      className="btn btn-ghost btn-xs text-error"
+                                      title="Remove photo"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Rescan Button */}
+                              <button
+                                onClick={handleScanComplianceDesc}
+                                className="btn btn-ghost btn-xs w-full"
+                              >
+                                Scan Again
+                              </button>
+                            </>
+                          ) : (
+                            <div className="alert alert-success">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span>All {complianceReportDesc.totalPhotos} photos are compliant!</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
                       ref={addressInputDescRef}
@@ -1241,6 +1445,99 @@ export default function GeneratePage() {
                     onPhotosChange={handlePhotosChangeMLS}
                     disabled={isGeneratingMLS}
                   />
+
+                  {/* Photo Compliance Scanner for MLS */}
+                  {photosMLS.length > 0 && (
+                    <div className="border-t border-base-200 pt-4 space-y-3">
+                      {/* Scan Button */}
+                      {!complianceReportMLS && !scanningComplianceMLS && (
+                        <button
+                          onClick={handleScanComplianceMLS}
+                          className="btn btn-outline btn-sm w-full gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                          </svg>
+                          Scan for Compliance Issues
+                        </button>
+                      )}
+
+                      {/* Scanning Progress */}
+                      {scanningComplianceMLS && (
+                        <div className="alert alert-info">
+                          <span className="loading loading-spinner loading-sm"></span>
+                          <span>Scanning {photosMLS.length} photos for compliance issues...</span>
+                        </div>
+                      )}
+
+                      {/* Compliance Results */}
+                      {complianceReportMLS && !scanningComplianceMLS && (
+                        <div className="space-y-3">
+                          {complianceReportMLS.hasViolations ? (
+                            <>
+                              <div className="alert alert-warning">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                                <span>{complianceReportMLS.violations.length} photo(s) have potential issues</span>
+                              </div>
+
+                              {/* Violation List */}
+                              <div className="space-y-2">
+                                {complianceReportMLS.violations.map((v) => (
+                                  <div key={v.photoIndex} className="flex items-start gap-3 p-3 bg-warning/10 rounded-lg border border-warning/20">
+                                    {/* Photo Thumbnail */}
+                                    <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-base-200">
+                                      <img
+                                        src={photosMLS[v.photoIndex]?.preview || photosMLS[v.photoIndex]}
+                                        alt={v.photoName}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    {/* Issue Details */}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-base-content">{v.photoName}</p>
+                                      <ul className="text-xs text-warning-content/70 mt-1 space-y-0.5">
+                                        {v.issues.map((issue, idx) => (
+                                          <li key={idx}>• {issue}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                    {/* Remove Button */}
+                                    <button
+                                      onClick={() => handleRemovePhotoMLS(v.photoIndex)}
+                                      className="btn btn-ghost btn-xs text-error"
+                                      title="Remove photo"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Rescan Button */}
+                              <button
+                                onClick={handleScanComplianceMLS}
+                                className="btn btn-ghost btn-xs w-full"
+                              >
+                                Scan Again
+                              </button>
+                            </>
+                          ) : (
+                            <div className="alert alert-success">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span>All {complianceReportMLS.totalPhotos} photos are compliant!</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
                       ref={addressInputMLSRef}

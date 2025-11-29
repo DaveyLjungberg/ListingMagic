@@ -506,8 +506,6 @@ export default function GeneratePage() {
 
     // Track listing ID for future updates (regenerate)
     setCurrentListingIdDesc(listing.id);
-
-    toast.success("Listing loaded successfully");
   };
 
   // Handle loading a previous MLS listing
@@ -548,8 +546,6 @@ export default function GeneratePage() {
     } else {
       console.log("[handleLoadMLSListing] No MLS data in listing");
     }
-
-    toast.success("MLS listing loaded successfully");
   };
 
   // Clear all property data for Descriptions tab

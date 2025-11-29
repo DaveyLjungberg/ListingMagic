@@ -47,6 +47,12 @@ export default function GeneratePage() {
     walkthruScript: { status: "idle", data: null, error: null },
     features: { status: "idle", data: null, error: null },
   });
+  // Track which sections are expanded (for auto-expand after generation)
+  const [expandedSections, setExpandedSections] = useState({
+    publicRemarks: false,
+    walkthruScript: false,
+    features: false,
+  });
 
   // =========================================================================
   // MLS DATA TAB STATE (Independent)
@@ -146,6 +152,23 @@ export default function GeneratePage() {
     }
   }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status, photoUrlsDesc]);
 
+  // Auto-expand Public Remarks when all generations complete
+  useEffect(() => {
+    const allGenerated =
+      generationState.publicRemarks.status === "success" &&
+      generationState.walkthruScript.status === "success" &&
+      generationState.features.status === "success";
+
+    if (allGenerated) {
+      // Auto-expand only Public Remarks, keep others closed
+      setExpandedSections({
+        publicRemarks: true,
+        walkthruScript: false,
+        features: false,
+      });
+    }
+  }, [generationState.publicRemarks.status, generationState.walkthruScript.status, generationState.features.status]);
+
   // Auto-save MLS listing when extraction completes
   // Only save when we have both mlsData AND valid photo URLs (not blob URLs)
   useEffect(() => {
@@ -234,6 +257,13 @@ export default function GeneratePage() {
       publicRemarks: { status: "idle", data: null, error: null },
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
+    });
+
+    // Expand Public Remarks section to show loading progress
+    setExpandedSections({
+      publicRemarks: true,
+      walkthruScript: false,
+      features: false,
     });
 
     try {
@@ -462,6 +492,15 @@ export default function GeneratePage() {
       }
     }
 
+    // Auto-expand Public Remarks when loading a listing with content
+    if (listing.public_remarks) {
+      setExpandedSections({
+        publicRemarks: true,
+        walkthruScript: false,
+        features: false,
+      });
+    }
+
     toast.success("Listing loaded successfully");
   };
 
@@ -527,6 +566,13 @@ export default function GeneratePage() {
       publicRemarks: { status: "idle", data: null, error: null },
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
+    });
+
+    // Reset expanded sections
+    setExpandedSections({
+      publicRemarks: false,
+      walkthruScript: false,
+      features: false,
     });
 
     toast.success("Property data cleared");
@@ -876,7 +922,8 @@ export default function GeneratePage() {
                 description="250-word property description for MLS listing"
                 generatedText={generationState.publicRemarks.data?.text}
                 buttons={publicRemarksButtons}
-                defaultOpen={generationState.publicRemarks.status === "loading" || generationState.publicRemarks.status === "success"}
+                isExpanded={expandedSections.publicRemarks}
+                onToggle={() => setExpandedSections(prev => ({ ...prev, publicRemarks: !prev.publicRemarks }))}
                 isLoading={generationState.publicRemarks.status === "loading"}
                 error={generationState.publicRemarks.error}
                 generationTime={
@@ -897,7 +944,8 @@ export default function GeneratePage() {
                 description="Video narration script for property tour"
                 generatedText={generationState.walkthruScript.data?.script}
                 buttons={walkthruButtons}
-                defaultOpen={generationState.walkthruScript.status === "loading" || generationState.walkthruScript.status === "success"}
+                isExpanded={expandedSections.walkthruScript}
+                onToggle={() => setExpandedSections(prev => ({ ...prev, walkthruScript: !prev.walkthruScript }))}
                 isLoading={generationState.walkthruScript.status === "loading"}
                 error={generationState.walkthruScript.error}
                 generationTime={
@@ -918,7 +966,8 @@ export default function GeneratePage() {
                 description="Detailed property features and highlights"
                 generatedText={formatFeaturesText(generationState.features.data)}
                 buttons={featuresButtons}
-                defaultOpen={generationState.features.status === "loading" || generationState.features.status === "success"}
+                isExpanded={expandedSections.features}
+                onToggle={() => setExpandedSections(prev => ({ ...prev, features: !prev.features }))}
                 isLoading={generationState.features.status === "loading"}
                 error={generationState.features.error}
                 generationTime={

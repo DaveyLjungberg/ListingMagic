@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ChatbotInput from "./ChatbotInput";
 
 const GeneratedSection = ({
@@ -9,14 +9,30 @@ const GeneratedSection = ({
   generatedText,
   buttons = [],
   defaultOpen = false,
+  isExpanded,        // Controlled mode: external state
+  onToggle,          // Controlled mode: toggle callback
   isLoading = false,
   error = null,
   generationTime = null,
   cost = null,
   onCopy = null,
 }) => {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Use controlled mode if isExpanded prop is provided, otherwise use internal state
+  const isControlled = isExpanded !== undefined;
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const [copied, setCopied] = useState(false);
+
+  // The actual open state (controlled or uncontrolled)
+  const isOpen = isControlled ? isExpanded : internalOpen;
+
+  // Handle toggle - call external handler if controlled, otherwise update internal state
+  const handleToggle = () => {
+    if (isControlled && onToggle) {
+      onToggle();
+    } else {
+      setInternalOpen(!internalOpen);
+    }
+  };
 
   const handleRefinement = (message) => {
     // Placeholder for refinement functionality
@@ -47,7 +63,7 @@ const GeneratedSection = ({
     <div className="border border-base-300 rounded-xl overflow-hidden bg-base-100 transition-shadow hover:shadow-sm">
       {/* Header - Clickable to toggle */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         className="w-full flex items-center justify-between p-4 hover:bg-base-200/50 transition-colors"
       >
         <div className="flex items-center gap-3">

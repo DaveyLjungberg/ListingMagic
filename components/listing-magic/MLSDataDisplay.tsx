@@ -4,9 +4,20 @@ import { MLSDataResponse } from "@/types/api";
 
 interface MLSDataDisplayProps {
   data: MLSDataResponse;
+  editableData?: MLSDataResponse;
+  onFieldChange?: (field: string, value: string | number | string[] | null) => void;
+  isEditable?: boolean;
 }
 
-export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
+export default function MLSDataDisplay({
+  data,
+  editableData,
+  onFieldChange,
+  isEditable = false
+}: MLSDataDisplayProps) {
+  // Use editable data if provided, otherwise fall back to original data
+  const displayData = editableData || data;
+
   // Helper function to get confidence color
   const getConfidenceColor = (field: string): string => {
     const score = data.confidence_scores?.[field];
@@ -15,16 +26,34 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
     return "badge-ghost";
   };
 
-  // Helper to format arrays
+  // Helper to format arrays for display
   const formatArray = (arr: string[] | null | undefined): string => {
-    if (!arr || arr.length === 0) return "—";
+    if (!arr || arr.length === 0) return "";
     return arr.join(", ");
   };
 
-  // Helper to format Yes/No
-  const formatYesNo = (value: string | null | undefined): string => {
-    if (!value) return "—";
-    return value;
+  // Helper to parse array from string
+  const parseArrayFromString = (value: string): string[] => {
+    if (!value.trim()) return [];
+    return value.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  };
+
+  // Handle field changes
+  const handleChange = (field: string, value: string, isArray: boolean = false) => {
+    if (!onFieldChange) return;
+
+    if (isArray) {
+      onFieldChange(field, parseArrayFromString(value));
+    } else {
+      onFieldChange(field, value || null);
+    }
+  };
+
+  // Handle number field changes
+  const handleNumberChange = (field: string, value: string) => {
+    if (!onFieldChange) return;
+    const numValue = value ? parseInt(value, 10) : null;
+    onFieldChange(field, isNaN(numValue as number) ? null : numValue);
   };
 
   return (
@@ -32,7 +61,7 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
       {/* Export Button */}
       <div className="flex justify-end">
         <button
-          onClick={() => exportToCSV(data)}
+          onClick={() => exportToCSV(displayData)}
           className="btn btn-primary btn-sm gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -51,70 +80,99 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-            <FieldDisplay
+            <EditableField
               label="Property Type"
-              value={data.property_type}
+              value={displayData.property_type || ""}
               confidence={getConfidenceColor("property_type")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("property_type", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Bedrooms"
-              value={data.bedrooms?.toString()}
+              value={displayData.bedrooms?.toString() || ""}
               confidence={getConfidenceColor("bedrooms")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("bedrooms", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Bathrooms (Full)"
-              value={data.bathrooms_full?.toString()}
+              value={displayData.bathrooms_full?.toString() || ""}
               confidence={getConfidenceColor("bathrooms_full")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("bathrooms_full", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Bathrooms (Half)"
-              value={data.bathrooms_half?.toString()}
+              value={displayData.bathrooms_half?.toString() || ""}
               confidence={getConfidenceColor("bathrooms_half")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("bathrooms_half", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Stories"
-              value={data.stories?.toString()}
+              value={displayData.stories?.toString() || ""}
               confidence={getConfidenceColor("stories")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("stories", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Garage Spaces"
-              value={data.garage_spaces?.toString()}
+              value={displayData.garage_spaces?.toString() || ""}
               confidence={getConfidenceColor("garage_spaces")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("garage_spaces", value)}
             />
           </div>
 
           <div className="divider"></div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FieldDisplay
+            <EditableTextarea
               label="Flooring"
-              value={formatArray(data.flooring)}
+              value={formatArray(displayData.flooring)}
               confidence={getConfidenceColor("flooring")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("flooring", value, true)}
             />
-            <FieldDisplay
+            <EditableTextarea
               label="Appliances"
-              value={formatArray(data.appliances)}
+              value={formatArray(displayData.appliances)}
               confidence={getConfidenceColor("appliances")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("appliances", value, true)}
             />
-            <FieldDisplay
+            <EditableField
               label="Exterior Material"
-              value={data.exterior_material}
+              value={displayData.exterior_material || ""}
               confidence={getConfidenceColor("exterior_material")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("exterior_material", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Roof"
-              value={data.roof}
+              value={displayData.roof || ""}
               confidence={getConfidenceColor("roof")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("roof", value)}
             />
-            <FieldDisplay
+            <EditableTextarea
               label="Parking"
-              value={formatArray(data.parking)}
+              value={formatArray(displayData.parking)}
               confidence={getConfidenceColor("parking")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("parking", value, true)}
             />
-            <FieldDisplay
+            <EditableTextarea
               label="Interior Features"
-              value={formatArray(data.interior_features)}
+              value={formatArray(displayData.interior_features)}
               confidence={getConfidenceColor("interior_features")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("interior_features", value, true)}
             />
           </div>
         </div>
@@ -129,57 +187,74 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-            <FieldDisplay
+            <EditableField
               label="Year Built (Est.)"
-              value={data.year_built_estimate}
+              value={displayData.year_built_estimate || ""}
               confidence={getConfidenceColor("year_built_estimate")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("year_built_estimate", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Total Sq Ft (Est.)"
-              value={data.total_finished_sqft_estimate?.toLocaleString()}
+              value={displayData.total_finished_sqft_estimate?.toString() || ""}
               confidence={getConfidenceColor("total_finished_sqft_estimate")}
+              isEditable={isEditable}
+              type="number"
+              onChange={(value) => handleNumberChange("total_finished_sqft_estimate", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Lot Size (Est.)"
-              value={data.lot_size_estimate}
+              value={displayData.lot_size_estimate || ""}
               confidence={getConfidenceColor("lot_size_estimate")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("lot_size_estimate", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Basement"
-              value={formatYesNo(data.basement)}
+              value={displayData.basement || ""}
               confidence={getConfidenceColor("basement")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("basement", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Foundation"
-              value={data.foundation}
+              value={displayData.foundation || ""}
               confidence={getConfidenceColor("foundation")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("foundation", value)}
             />
-            <FieldDisplay
+            <EditableField
               label="Water Source"
-              value={data.water_source}
+              value={displayData.water_source || ""}
               confidence={getConfidenceColor("water_source")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("water_source", value)}
             />
           </div>
 
           <div className="divider"></div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FieldDisplay
+            <EditableTextarea
               label="Green Features"
-              value={formatArray(data.green_features)}
+              value={formatArray(displayData.green_features)}
               confidence={getConfidenceColor("green_features")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("green_features", value, true)}
             />
-            <FieldDisplay
+            <EditableTextarea
               label="HOA Amenities"
-              value={formatArray(data.hoa_visible_amenities)}
+              value={formatArray(displayData.hoa_visible_amenities)}
               confidence={getConfidenceColor("hoa_visible_amenities")}
+              isEditable={isEditable}
+              onChange={(value) => handleChange("hoa_visible_amenities", value, true)}
             />
           </div>
         </div>
       </div>
 
       {/* Room Details */}
-      {data.rooms && data.rooms.length > 0 && (
+      {displayData.rooms && displayData.rooms.length > 0 && (
         <div className="card bg-base-100 border border-base-300">
           <div className="card-body">
             <h3 className="card-title text-lg">Room Details</h3>
@@ -194,7 +269,7 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rooms.map((room, idx) => (
+                  {displayData.rooms.map((room, idx) => (
                     <tr key={idx}>
                       <td>{room.room_type}</td>
                       <td>{room.level}</td>
@@ -214,21 +289,27 @@ export default function MLSDataDisplay({ data }: MLSDataDisplayProps) {
 
       {/* Metadata */}
       <div className="text-xs text-base-content/50 text-center">
-        Analyzed {data.photos_analyzed} photos using {data.model_used} in {data.processing_time_ms}ms
+        Analyzed {displayData.photos_analyzed} photos using {displayData.model_used} in {displayData.processing_time_ms}ms
       </div>
     </div>
   );
 }
 
-// Field Display Component
-function FieldDisplay({
+// Editable Field Component (for short single-value fields)
+function EditableField({
   label,
   value,
   confidence,
+  isEditable,
+  type = "text",
+  onChange,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: string;
   confidence: string;
+  isEditable: boolean;
+  type?: "text" | "number";
+  onChange: (value: string) => void;
 }) {
   return (
     <div className="form-control">
@@ -238,9 +319,58 @@ function FieldDisplay({
           {confidence.includes("success") ? "High" : confidence.includes("warning") ? "Est" : ""}
         </span>
       </label>
-      <div className="input input-bordered bg-base-200 flex items-center">
-        {value || "—"}
-      </div>
+      {isEditable ? (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="input input-bordered bg-base-100 w-full"
+          placeholder="—"
+        />
+      ) : (
+        <div className="input input-bordered bg-base-200 flex items-center">
+          {value || "—"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Editable Textarea Component (for long comma-separated fields)
+function EditableTextarea({
+  label,
+  value,
+  confidence,
+  isEditable,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  confidence: string;
+  isEditable: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="form-control">
+      <label className="label">
+        <span className="label-text font-medium">{label}</span>
+        <span className={`badge ${confidence} badge-xs`}>
+          {confidence.includes("success") ? "High" : confidence.includes("warning") ? "Est" : ""}
+        </span>
+      </label>
+      {isEditable ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="textarea textarea-bordered bg-base-100 w-full resize-none"
+          rows={2}
+          placeholder="—"
+        />
+      ) : (
+        <div className="p-3 border border-base-300 rounded-lg bg-base-200 min-h-[60px] text-sm whitespace-pre-wrap break-words">
+          {value || "—"}
+        </div>
+      )}
     </div>
   );
 }

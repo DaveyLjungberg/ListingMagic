@@ -27,10 +27,11 @@ export async function POST(request) {
       );
     }
 
-    // Build ATTOM API URL
+    // Build ATTOM API URL - use /property/detail endpoint
+    // address2 should be "city, state" only - NO ZIP per ATTOM docs
     const address1 = encodeURIComponent(address);
-    const address2 = encodeURIComponent(`${city}, ${state} ${zip}`);
-    const url = `https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/address?address1=${address1}&address2=${address2}`;
+    const address2 = encodeURIComponent(`${city}, ${state}`);
+    const url = `https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/detail?address1=${address1}&address2=${address2}`;
 
     console.log("[ATTOM API] Fetching tax records for:", { address, city, state, zip });
     console.log("[ATTOM API] URL:", url);

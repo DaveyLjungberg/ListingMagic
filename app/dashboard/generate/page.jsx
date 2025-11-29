@@ -159,9 +159,15 @@ export default function GeneratePage() {
       generationState.walkthruScript.status === "success" &&
       generationState.features.status === "success";
 
+    console.log("[Auto-expand] isGeneratingDesc:", isGeneratingDesc, "allGenerated:", allGenerated, "statuses:", {
+      publicRemarks: generationState.publicRemarks.status,
+      walkthruScript: generationState.walkthruScript.status,
+      features: generationState.features.status,
+    });
+
     // Only expand AFTER generation has stopped and all content is ready
     if (!isGeneratingDesc && allGenerated) {
-      // Auto-expand only Public Remarks, keep others closed
+      console.log("[Auto-expand] Expanding Public Remarks!");
       setExpandedSections({
         publicRemarks: true,
         walkthruScript: false,

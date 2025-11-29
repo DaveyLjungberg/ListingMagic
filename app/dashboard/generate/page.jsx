@@ -1030,7 +1030,6 @@ export default function GeneratePage() {
                     ref={photoUploaderDescRef}
                     onPhotosChange={handlePhotosChangeDesc}
                     disabled={isGeneratingDesc}
-                    initialPhotos={photosDesc}
                   />
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput
@@ -1198,7 +1197,6 @@ export default function GeneratePage() {
                     ref={photoUploaderMLSRef}
                     onPhotosChange={handlePhotosChangeMLS}
                     disabled={isGeneratingMLS}
-                    initialPhotos={photosMLS}
                   />
                   <div className="border-t border-base-200 pt-6">
                     <AddressInput

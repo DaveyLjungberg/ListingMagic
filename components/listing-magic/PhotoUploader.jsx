@@ -2,16 +2,9 @@
 
 import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 
-const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, initialPhotos = [] }, ref) => {
+const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => {
   const [photos, setPhotos] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Sync with initialPhotos when they change (for loading previous listings)
-  useEffect(() => {
-    if (initialPhotos.length > 0) {
-      setPhotos(initialPhotos);
-    }
-  }, [initialPhotos]);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({

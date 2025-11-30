@@ -1055,18 +1055,39 @@ export default function GeneratePage() {
     }
   };
 
-  // Handle video download and preview
-  const handleVideoDownloadAndPreview = (videoUrl) => {
-    // Open preview in new tab
-    window.open(videoUrl, "_blank");
+  // Handle video download - fetches and downloads as blob for cross-origin support
+  const handleDownloadVideo = async (videoUrl) => {
+    try {
+      toast.loading("Preparing download...", { id: "video-download" });
 
-    // Trigger download
-    const link = document.createElement("a");
-    link.href = videoUrl;
-    link.download = "walkthrough_video.mp4";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      // Fetch the video file
+      const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error("Failed to fetch video");
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Create download link
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `walkthrough_video_${currentListingIdDesc || "listing"}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Cleanup blob URL
+      URL.revokeObjectURL(blobUrl);
+
+      toast.success("Video downloaded!", { id: "video-download" });
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Download failed. Try right-click → Save As", { id: "video-download" });
+    }
+  };
+
+  // Handle video preview - opens in new tab
+  const handlePreviewVideo = (videoUrl) => {
+    window.open(videoUrl, "_blank");
   };
 
   // Handle voice preview
@@ -1628,13 +1649,22 @@ export default function GeneratePage() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleVideoDownloadAndPreview(videoData.video_url)}
+                          onClick={() => handleDownloadVideo(videoData.video_url)}
                           className="btn btn-success btn-sm gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                          Download MP4
+                        </button>
+                        <button
+                          onClick={() => handlePreviewVideo(videoData.video_url)}
+                          className="btn btn-outline btn-sm gap-2"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
                           </svg>
-                          Preview & Download
+                          Preview
                         </button>
                         {videoData.script_url && (
                           <a

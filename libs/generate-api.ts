@@ -945,12 +945,16 @@ export interface VideoGenerationResponse {
  * @param script - Walk-thru script text
  * @param photoUrls - Array of public URLs to photos
  * @param listingId - Listing ID for storage path
+ * @param includeVoiceover - Whether to include ElevenLabs voiceover
+ * @param voiceId - ElevenLabs voice ID to use
  * @param onProgress - Optional callback for progress updates
  */
 export async function generateWalkthroughVideo(
   script: string,
   photoUrls: string[],
   listingId: string,
+  includeVoiceover: boolean = true,
+  voiceId: string = "21m00Tcm4TlvDq8ikWAM",
   onProgress?: (message: string) => void
 ): Promise<VideoGenerationResponse> {
   try {
@@ -967,6 +971,8 @@ export async function generateWalkthroughVideo(
         script,
         photo_urls: photoUrls,
         listing_id: listingId,
+        include_voiceover: includeVoiceover,
+        voice_id: voiceId,
       }),
     });
 

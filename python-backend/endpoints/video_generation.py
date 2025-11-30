@@ -29,6 +29,14 @@ class VideoGenerationRequest(BaseModel):
     script: str = Field(..., min_length=50, description="Walk-thru script for voiceover")
     photo_urls: List[str] = Field(..., description="Public URLs to property photos")
     listing_id: str = Field(..., description="Listing ID for storage path")
+    include_voiceover: bool = Field(default=True, description="Whether to include ElevenLabs voiceover")
+    voice_id: str = Field(default="21m00Tcm4TlvDq8ikWAM", description="ElevenLabs voice ID")
+
+
+class VoicePreviewRequest(BaseModel):
+    """Request model for voice preview."""
+    voice_id: str = Field(..., description="ElevenLabs voice ID")
+    text: str = Field(..., description="Text to convert to speech")
 
 
 class VideoGenerationResponse(BaseModel):
@@ -324,8 +332,14 @@ def get_video_duration(video_path: str) -> float:
 # ElevenLabs TTS
 # =============================================================================
 
-async def generate_voiceover(script: str, output_path: str) -> bool:
-    """Generate voiceover using ElevenLabs API."""
+async def generate_voiceover(script: str, output_path: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM") -> bool:
+    """Generate voiceover using ElevenLabs API.
+
+    Args:
+        script: The script text to convert to speech
+        output_path: Path to save the audio file
+        voice_id: ElevenLabs voice ID (default: Rachel)
+    """
     api_key = os.environ.get("ELEVENLABS_API_KEY")
 
     if not api_key:
@@ -341,7 +355,6 @@ async def generate_voiceover(script: str, output_path: str) -> bool:
             return False
 
         # ElevenLabs API endpoint
-        voice_id = "21m00Tcm4TlvDq8ikWAM"  # Rachel - professional female
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
         headers = {
@@ -382,6 +395,83 @@ async def generate_voiceover(script: str, output_path: str) -> bool:
     except Exception as e:
         logger.error(f"ElevenLabs TTS failed: {e}")
         return False
+
+
+# =============================================================================
+# Voice Preview Endpoint
+# =============================================================================
+
+@router.post("/api/preview-voice")
+async def preview_voice(request: VoicePreviewRequest):
+    """
+    Generate a short voice preview for testing different voices.
+
+    Returns audio as base64-encoded MP3 for easy frontend playback.
+    """
+    api_key = os.environ.get("ELEVENLABS_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice preview unavailable - ELEVENLABS_API_KEY not configured"
+        )
+
+    try:
+        # Limit preview text length
+        preview_text = request.text[:200] if len(request.text) > 200 else request.text
+
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{request.voice_id}"
+
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": api_key
+        }
+
+        data = {
+            "text": preview_text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "style": 0.0,
+                "use_speaker_boost": True
+            }
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=data,
+                headers=headers,
+                timeout=30.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"ElevenLabs preview error: {response.status_code} - {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Voice preview failed: {response.text}"
+                )
+
+            # Return audio as base64
+            import base64
+            audio_base64 = base64.b64encode(response.content).decode('utf-8')
+
+            return {
+                "success": True,
+                "audio_base64": audio_base64,
+                "content_type": "audio/mpeg"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice preview failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Voice preview failed: {str(e)}"
+        )
 
 
 # =============================================================================
@@ -427,9 +517,15 @@ async def generate_walkthrough_video(request: VideoGenerationRequest) -> VideoGe
 
         logger.info(f"Downloaded {len(photo_paths)} photos")
 
-        # 2. Generate voiceover
+        # 2. Generate voiceover (if requested)
         audio_path = os.path.join(temp_dir, "voiceover.mp3")
-        has_voiceover = await generate_voiceover(request.script, audio_path)
+        has_voiceover = False
+
+        if request.include_voiceover:
+            logger.info(f"Generating voiceover with voice: {request.voice_id}")
+            has_voiceover = await generate_voiceover(request.script, audio_path, request.voice_id)
+        else:
+            logger.info("Voiceover disabled by user request")
 
         # 3. Create video
         video_path = os.path.join(temp_dir, "walkthrough_video.mp4")

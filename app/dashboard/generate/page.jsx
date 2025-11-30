@@ -80,6 +80,51 @@ export default function GeneratePage() {
   // =========================================================================
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoData, setVideoData] = useState(null);
+  const [includeVoiceover, setIncludeVoiceover] = useState(true);
+  const [selectedVoice, setSelectedVoice] = useState("21m00Tcm4TlvDq8ikWAM"); // Rachel default
+  const [isPreviewingVoice, setIsPreviewingVoice] = useState(null);
+
+  // Voice options with metadata
+  const voiceOptions = [
+    // Female voices
+    {
+      id: "21m00Tcm4TlvDq8ikWAM",
+      name: "Rachel",
+      gender: "Female",
+      description: "Warm, professional",
+    },
+    {
+      id: "EXAVITQu4vr4xnSDxMaL",
+      name: "Bella",
+      gender: "Female",
+      description: "Bright, energetic",
+    },
+    {
+      id: "MF3mGyEYCl7XYWbV9V6O",
+      name: "Elli",
+      gender: "Female",
+      description: "Sophisticated, calm",
+    },
+    // Male voices
+    {
+      id: "ErXwobaYiN019PkySvjV",
+      name: "Antoni",
+      gender: "Male",
+      description: "Clear, professional",
+    },
+    {
+      id: "pNInz6obpgDQGcFmaJgB",
+      name: "Adam",
+      gender: "Male",
+      description: "Deep, authoritative",
+    },
+    {
+      id: "onwK4e9ZLuTAKqWW03F9",
+      name: "Daniel",
+      gender: "Male",
+      description: "Warm, trustworthy",
+    },
+  ];
 
   // Get current user on mount
   useEffect(() => {
@@ -965,13 +1010,18 @@ export default function GeneratePage() {
     setIsGeneratingVideo(true);
     setVideoData(null);
 
-    const toastId = toast.loading("Generating video... (1-2 minutes)", { duration: 180000 });
+    const loadingMessage = includeVoiceover
+      ? "Generating video with voiceover... (1-2 minutes)"
+      : "Generating silent video...";
+    const toastId = toast.loading(loadingMessage, { duration: 180000 });
 
     try {
       const result = await generateWalkthroughVideo(
         script,
         photoUrlsDesc,
         currentListingIdDesc,
+        includeVoiceover,
+        selectedVoice,
         (message) => {
           toast.loading(message, { id: toastId });
         }
@@ -996,6 +1046,64 @@ export default function GeneratePage() {
       toast.error(friendlyError, { id: toastId });
     } finally {
       setIsGeneratingVideo(false);
+    }
+  };
+
+  // Handle video download and preview
+  const handleVideoDownloadAndPreview = (videoUrl) => {
+    // Open preview in new tab
+    window.open(videoUrl, "_blank");
+
+    // Trigger download
+    const link = document.createElement("a");
+    link.href = videoUrl;
+    link.download = "walkthrough_video.mp4";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Handle voice preview
+  const handlePreviewVoice = async (voiceId) => {
+    setIsPreviewingVoice(voiceId);
+
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
+
+      const response = await fetch(`${backendUrl}/api/preview-voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voice_id: voiceId,
+          text: "Welcome to this beautiful home. This property features stunning craftsmanship and modern amenities."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Voice preview failed");
+      }
+
+      const data = await response.json();
+
+      // Convert base64 to audio blob and play
+      const audioBytes = atob(data.audio_base64);
+      const audioArray = new Uint8Array(audioBytes.length);
+      for (let i = 0; i < audioBytes.length; i++) {
+        audioArray[i] = audioBytes.charCodeAt(i);
+      }
+      const audioBlob = new Blob([audioArray], { type: "audio/mpeg" });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.play();
+
+      audio.onended = () => {
+        setIsPreviewingVoice(null);
+        URL.revokeObjectURL(audioUrl);
+      };
+    } catch (error) {
+      console.error("Voice preview failed:", error);
+      toast.error("Could not preview voice");
+      setIsPreviewingVoice(null);
     }
   };
 
@@ -1407,11 +1515,99 @@ export default function GeneratePage() {
                 onCopy={handleCopy}
               />
 
+              {/* Video Options */}
+              {generationState.walkthruScript.data?.script && !videoData && (
+                <div className="card bg-base-100 border border-base-300">
+                  <div className="card-body py-4">
+                    <h4 className="font-medium text-sm mb-3">Video Options</h4>
+
+                    {/* Voiceover Toggle */}
+                    <label className="flex items-center gap-3 cursor-pointer mb-4">
+                      <input
+                        type="checkbox"
+                        checked={includeVoiceover}
+                        onChange={(e) => setIncludeVoiceover(e.target.checked)}
+                        className="checkbox checkbox-primary checkbox-sm"
+                      />
+                      <span className="text-sm">Include professional voiceover</span>
+                      {includeVoiceover ? (
+                        <span className="text-xs text-base-content/50">(~2 minutes)</span>
+                      ) : (
+                        <span className="text-xs text-base-content/50">(5 sec/photo, instant)</span>
+                      )}
+                    </label>
+
+                    {/* Voice Selection */}
+                    {includeVoiceover && (
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-base-content/70">Select Voice</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {voiceOptions.map((voice) => (
+                            <button
+                              key={voice.id}
+                              onClick={() => setSelectedVoice(voice.id)}
+                              className={`relative p-3 border-2 rounded-lg text-left transition-all ${
+                                selectedVoice === voice.id
+                                  ? "border-primary bg-primary/5"
+                                  : "border-base-300 hover:border-base-content/30"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-sm">{voice.name}</span>
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                      voice.gender === "Female"
+                                        ? "bg-pink-100 text-pink-700"
+                                        : "bg-blue-100 text-blue-700"
+                                    }`}>
+                                      {voice.gender === "Female" ? "F" : "M"}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-base-content/60 mt-0.5">{voice.description}</p>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePreviewVoice(voice.id);
+                                  }}
+                                  disabled={isPreviewingVoice === voice.id}
+                                  className="ml-1 p-1.5 text-base-content/40 hover:text-primary transition-colors"
+                                  title="Preview voice"
+                                >
+                                  {isPreviewingVoice === voice.id ? (
+                                    <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                                    </svg>
+                                  )}
+                                </button>
+                              </div>
+                              {selectedVoice === voice.id && (
+                                <div className="absolute top-1.5 right-1.5">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-primary">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Video Download Links */}
               {videoData && (
                 <div className="card bg-base-100 border border-success/30 animate-fade-in">
                   <div className="card-body py-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-success/10 rounded-lg">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-success">
@@ -1426,16 +1622,15 @@ export default function GeneratePage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <a
-                          href={videoData.video_url}
-                          download="walkthrough_video.mp4"
+                        <button
+                          onClick={() => handleVideoDownloadAndPreview(videoData.video_url)}
                           className="btn btn-success btn-sm gap-2"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
                           </svg>
-                          Download Video
-                        </a>
+                          Preview & Download
+                        </button>
                         {videoData.script_url && (
                           <a
                             href={videoData.script_url}

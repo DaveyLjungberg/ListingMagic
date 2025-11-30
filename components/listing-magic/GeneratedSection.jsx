@@ -16,6 +16,7 @@ const GeneratedSection = ({
   generationTime = null,
   cost = null,
   onCopy = null,
+  children = null,   // Custom content to render before buttons
 }) => {
   // Use controlled mode if isExpanded prop is provided, otherwise use internal state
   const isControlled = isExpanded !== undefined;
@@ -279,6 +280,13 @@ const GeneratedSection = ({
                 placeholder={`Refine the ${title.toLowerCase()}...`}
                 onSubmit={handleRefinement}
               />
+            </div>
+          )}
+
+          {/* Custom content (e.g., video options for walk-thru script) */}
+          {children && generatedText && !isLoading && !error && (
+            <div className="pt-2">
+              {children}
             </div>
           )}
 

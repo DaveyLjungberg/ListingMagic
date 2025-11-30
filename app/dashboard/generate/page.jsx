@@ -81,48 +81,54 @@ export default function GeneratePage() {
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoData, setVideoData] = useState(null);
   const [includeVoiceover, setIncludeVoiceover] = useState(true);
-  const [selectedVoice, setSelectedVoice] = useState("21m00Tcm4TlvDq8ikWAM"); // Rachel default
+  const [selectedVoice, setSelectedVoice] = useState("EXAVITQu4vr4xnSDxMaL"); // Sarah default
   const [isPreviewingVoice, setIsPreviewingVoice] = useState(null);
 
-  // Voice options with metadata
+  // Voice options with metadata - American voices only
   const voiceOptions = [
-    // Female voices
-    {
-      id: "21m00Tcm4TlvDq8ikWAM",
-      name: "Rachel",
-      gender: "Female",
-      description: "Warm, professional",
-    },
+    // Female voices (American)
     {
       id: "EXAVITQu4vr4xnSDxMaL",
-      name: "Bella",
+      name: "Sarah",
       gender: "Female",
-      description: "Bright, energetic",
+      age: "Young",
+      description: "Warm, engaging",
     },
     {
-      id: "MF3mGyEYCl7XYWbV9V6O",
-      name: "Elli",
+      id: "FGY2WhTYpPnrIDTdsKH5",
+      name: "Laura",
       gender: "Female",
-      description: "Sophisticated, calm",
+      age: "Young",
+      description: "Friendly, approachable",
     },
-    // Male voices
     {
-      id: "ErXwobaYiN019PkySvjV",
-      name: "Antoni",
+      id: "XrExE9yKIg1WjnnlVkGX",
+      name: "Matilda",
+      gender: "Female",
+      age: "Middle-aged",
+      description: "Professional, polished",
+    },
+    // Male voices (American)
+    {
+      id: "nPczCjzI2devNBz1zQrb",
+      name: "Brian",
       gender: "Male",
+      age: "Middle-aged",
+      description: "Authoritative, trustworthy",
+    },
+    {
+      id: "iP95p4xoKVk53GoZ742B",
+      name: "Chris",
+      gender: "Male",
+      age: "Middle-aged",
       description: "Clear, professional",
     },
     {
-      id: "pNInz6obpgDQGcFmaJgB",
-      name: "Adam",
+      id: "cjVigY5qzO86Huf0OWal",
+      name: "Eric",
       gender: "Male",
-      description: "Deep, authoritative",
-    },
-    {
-      id: "onwK4e9ZLuTAKqWW03F9",
-      name: "Daniel",
-      gender: "Male",
-      description: "Warm, trustworthy",
+      age: "Middle-aged",
+      description: "Warm, confident",
     },
   ];
 
@@ -1513,35 +1519,31 @@ export default function GeneratePage() {
                     : null
                 }
                 onCopy={handleCopy}
-              />
-
-              {/* Video Options */}
-              {generationState.walkthruScript.data?.script && !videoData && (
-                <div className="card bg-base-100 border border-base-300">
-                  <div className="card-body py-4">
-                    <h4 className="font-medium text-sm mb-3">Video Options</h4>
-
+              >
+                {/* Video Options - integrated into script section */}
+                {!videoData && (
+                  <div className="space-y-4">
                     {/* Voiceover Toggle */}
-                    <label className="flex items-center gap-3 cursor-pointer mb-4">
+                    <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={includeVoiceover}
                         onChange={(e) => setIncludeVoiceover(e.target.checked)}
                         className="checkbox checkbox-primary checkbox-sm"
                       />
-                      <span className="text-sm">Include professional voiceover</span>
-                      {includeVoiceover ? (
-                        <span className="text-xs text-base-content/50">(~2 minutes)</span>
-                      ) : (
-                        <span className="text-xs text-base-content/50">(5 sec/photo, instant)</span>
-                      )}
+                      <span className="text-sm font-medium">Include professional voiceover</span>
+                      <span className="text-xs text-base-content/50">
+                        {includeVoiceover ? "(~2 minutes)" : "(5 sec/photo, instant)"}
+                      </span>
                     </label>
 
-                    {/* Voice Selection */}
-                    {includeVoiceover && (
+                    {/* Voice Selection - only visible when voiceover enabled */}
+                    <div className={`transition-all duration-300 overflow-hidden ${
+                      includeVoiceover ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+                    }`}>
                       <div className="space-y-2">
                         <label className="text-xs font-medium text-base-content/70">Select Voice</label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {voiceOptions.map((voice) => (
                             <button
                               key={voice.id}
@@ -1563,6 +1565,9 @@ export default function GeneratePage() {
                                     }`}>
                                       {voice.gender === "Female" ? "F" : "M"}
                                     </span>
+                                    {voice.age && (
+                                      <span className="text-xs text-base-content/40">{voice.age}</span>
+                                    )}
                                   </div>
                                   <p className="text-xs text-base-content/60 mt-0.5">{voice.description}</p>
                                 </div>
@@ -1598,10 +1603,10 @@ export default function GeneratePage() {
                           ))}
                         </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </GeneratedSection>
 
               {/* Video Download Links */}
               {videoData && (

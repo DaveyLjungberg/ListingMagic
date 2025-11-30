@@ -17,6 +17,11 @@ const GeneratedSection = ({
   cost = null,
   onCopy = null,
   children = null,   // Custom content to render before buttons
+  // Refinement props
+  onRefine = null,           // Handler for refinement submissions
+  isRefining = false,        // Loading state for refinement
+  complianceError = null,    // Fair Housing compliance error
+  onClearComplianceError = null,  // Clear compliance error
 }) => {
   // Use controlled mode if isExpanded prop is provided, otherwise use internal state
   const isControlled = isExpanded !== undefined;
@@ -278,7 +283,10 @@ const GeneratedSection = ({
               </label>
               <ChatbotInput
                 placeholder={`Refine the ${title.toLowerCase()}...`}
-                onSubmit={handleRefinement}
+                onSubmit={onRefine || handleRefinement}
+                isLoading={isRefining}
+                complianceError={complianceError}
+                onClearError={onClearComplianceError}
               />
             </div>
           )}

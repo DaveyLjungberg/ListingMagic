@@ -41,6 +41,7 @@ from services.gemini_service import get_gemini_service
 from utils import get_cost_tracker
 from endpoints.mls_data import router as mls_router
 from endpoints.video_generation import router as video_router
+from endpoints.refine_content import router as refine_router
 
 # Configure logging
 logging.basicConfig(
@@ -129,6 +130,7 @@ app.add_middleware(
 # Include routers
 app.include_router(mls_router)
 app.include_router(video_router)
+app.include_router(refine_router)
 
 
 # =============================================================================

@@ -15,6 +15,8 @@ import {
   generatePublicRemarks,
   generateMLSDataWithStorage,
   generateWalkthroughVideo,
+  refineContent,
+  checkFairHousingComplianceLocal,
   convertPhotosToImageInputs,
   formatGenerationTime,
   formatCost,
@@ -83,6 +85,24 @@ export default function GeneratePage() {
   const [includeVoiceover, setIncludeVoiceover] = useState(true);
   const [selectedVoice, setSelectedVoice] = useState("EXAVITQu4vr4xnSDxMaL"); // Sarah default
   const [isPreviewingVoice, setIsPreviewingVoice] = useState(null);
+
+  // =========================================================================
+  // CONTENT REFINEMENT STATE (for real-time AI editing)
+  // =========================================================================
+  // Public Remarks refinement
+  const [remarksHistory, setRemarksHistory] = useState([]);
+  const [isRefiningRemarks, setIsRefiningRemarks] = useState(false);
+  const [remarksComplianceError, setRemarksComplianceError] = useState(null);
+
+  // Walk-thru Script refinement
+  const [scriptHistory, setScriptHistory] = useState([]);
+  const [isRefiningScript, setIsRefiningScript] = useState(false);
+  const [scriptComplianceError, setScriptComplianceError] = useState(null);
+
+  // Features refinement
+  const [featuresHistory, setFeaturesHistory] = useState([]);
+  const [isRefiningFeatures, setIsRefiningFeatures] = useState(false);
+  const [featuresComplianceError, setFeaturesComplianceError] = useState(null);
 
   // Voice options with metadata - American voices only
   const voiceOptions = [
@@ -1134,6 +1154,276 @@ export default function GeneratePage() {
     }
   };
 
+  // =========================================================================
+  // CONTENT REFINEMENT HANDLERS
+  // =========================================================================
+
+  // Refine Public Remarks
+  const handleRefineRemarks = async (instruction) => {
+    if (!instruction?.trim()) return;
+
+    const currentContent = generationState.publicRemarks.data?.text;
+    if (!currentContent) {
+      toast.error("No content to refine");
+      return;
+    }
+
+    // Quick local compliance check
+    const localCheck = checkFairHousingComplianceLocal(instruction);
+    if (!localCheck.isCompliant) {
+      setRemarksComplianceError({
+        message: "Your refinement request may violate Fair Housing laws",
+        violations: localCheck.violations,
+      });
+      return;
+    }
+
+    setIsRefiningRemarks(true);
+    setRemarksComplianceError(null);
+
+    try {
+      const result = await refineContent(
+        "remarks",
+        currentContent,
+        instruction,
+        remarksHistory,
+        { address: addressDesc }
+      );
+
+      if (!result.success) {
+        if (result.error === "compliance_violation") {
+          setRemarksComplianceError({
+            message: result.message,
+            violations: result.violations,
+          });
+          toast.error("Fair Housing compliance issue detected");
+        } else {
+          toast.error(result.message || "Failed to refine content");
+        }
+        return;
+      }
+
+      // Update the generation state with refined content
+      setGenerationState(prev => ({
+        ...prev,
+        publicRemarks: {
+          ...prev.publicRemarks,
+          data: { ...prev.publicRemarks.data, text: result.refined_content },
+        },
+      }));
+
+      // Update conversation history
+      setRemarksHistory(prev => [
+        ...prev,
+        { role: "user", content: instruction },
+        { role: "assistant", content: result.refined_content },
+      ]);
+
+      // Update database
+      if (currentListingIdDesc) {
+        await updateListing(currentListingIdDesc, {
+          public_remarks: result.refined_content,
+        });
+      }
+
+      toast.success("Public remarks refined");
+    } catch (error) {
+      console.error("Refinement error:", error);
+      toast.error("Failed to refine content");
+    } finally {
+      setIsRefiningRemarks(false);
+    }
+  };
+
+  // Refine Walk-thru Script
+  const handleRefineScript = async (instruction) => {
+    if (!instruction?.trim()) return;
+
+    const currentContent = generationState.walkthruScript.data?.script;
+    if (!currentContent) {
+      toast.error("No content to refine");
+      return;
+    }
+
+    // Quick local compliance check
+    const localCheck = checkFairHousingComplianceLocal(instruction);
+    if (!localCheck.isCompliant) {
+      setScriptComplianceError({
+        message: "Your refinement request may violate Fair Housing laws",
+        violations: localCheck.violations,
+      });
+      return;
+    }
+
+    setIsRefiningScript(true);
+    setScriptComplianceError(null);
+
+    try {
+      const result = await refineContent(
+        "script",
+        currentContent,
+        instruction,
+        scriptHistory,
+        { address: addressDesc }
+      );
+
+      if (!result.success) {
+        if (result.error === "compliance_violation") {
+          setScriptComplianceError({
+            message: result.message,
+            violations: result.violations,
+          });
+          toast.error("Fair Housing compliance issue detected");
+        } else {
+          toast.error(result.message || "Failed to refine content");
+        }
+        return;
+      }
+
+      // Update the generation state with refined content
+      setGenerationState(prev => ({
+        ...prev,
+        walkthruScript: {
+          ...prev.walkthruScript,
+          data: { ...prev.walkthruScript.data, script: result.refined_content },
+        },
+      }));
+
+      // Update conversation history
+      setScriptHistory(prev => [
+        ...prev,
+        { role: "user", content: instruction },
+        { role: "assistant", content: result.refined_content },
+      ]);
+
+      // Update database
+      if (currentListingIdDesc) {
+        await updateListing(currentListingIdDesc, {
+          walkthru_script: result.refined_content,
+        });
+      }
+
+      toast.success("Walk-thru script refined");
+    } catch (error) {
+      console.error("Refinement error:", error);
+      toast.error("Failed to refine content");
+    } finally {
+      setIsRefiningScript(false);
+    }
+  };
+
+  // Refine Features
+  const handleRefineFeatures = async (instruction) => {
+    if (!instruction?.trim()) return;
+
+    const featuresData = generationState.features.data;
+    const currentContent = featuresData?.categorized_features
+      ? JSON.stringify(featuresData.categorized_features, null, 2)
+      : featuresData?.features_list?.join("\n");
+
+    if (!currentContent) {
+      toast.error("No content to refine");
+      return;
+    }
+
+    // Quick local compliance check
+    const localCheck = checkFairHousingComplianceLocal(instruction);
+    if (!localCheck.isCompliant) {
+      setFeaturesComplianceError({
+        message: "Your refinement request may violate Fair Housing laws",
+        violations: localCheck.violations,
+      });
+      return;
+    }
+
+    setIsRefiningFeatures(true);
+    setFeaturesComplianceError(null);
+
+    try {
+      const result = await refineContent(
+        "features",
+        currentContent,
+        instruction,
+        featuresHistory,
+        { address: addressDesc }
+      );
+
+      if (!result.success) {
+        if (result.error === "compliance_violation") {
+          setFeaturesComplianceError({
+            message: result.message,
+            violations: result.violations,
+          });
+          toast.error("Fair Housing compliance issue detected");
+        } else {
+          toast.error(result.message || "Failed to refine content");
+        }
+        return;
+      }
+
+      // Parse the refined content back to structured format
+      let refinedFeatures;
+      try {
+        refinedFeatures = JSON.parse(result.refined_content);
+      } catch {
+        // If not JSON, treat as plain text list
+        refinedFeatures = result.refined_content.split("\n").filter(line => line.trim());
+      }
+
+      // Update the generation state with refined content
+      setGenerationState(prev => ({
+        ...prev,
+        features: {
+          ...prev.features,
+          data: {
+            ...prev.features.data,
+            categorized_features: typeof refinedFeatures === "object" && !Array.isArray(refinedFeatures)
+              ? refinedFeatures
+              : prev.features.data?.categorized_features,
+            features_list: Array.isArray(refinedFeatures)
+              ? refinedFeatures
+              : prev.features.data?.features_list,
+          },
+        },
+      }));
+
+      // Update conversation history
+      setFeaturesHistory(prev => [
+        ...prev,
+        { role: "user", content: instruction },
+        { role: "assistant", content: result.refined_content },
+      ]);
+
+      // Update database
+      if (currentListingIdDesc) {
+        await updateListing(currentListingIdDesc, {
+          features: result.refined_content,
+        });
+      }
+
+      toast.success("Features refined");
+    } catch (error) {
+      console.error("Refinement error:", error);
+      toast.error("Failed to refine content");
+    } finally {
+      setIsRefiningFeatures(false);
+    }
+  };
+
+  // Clear refinement history (called on regenerate)
+  const clearRefinementHistory = (type) => {
+    if (type === "remarks") {
+      setRemarksHistory([]);
+      setRemarksComplianceError(null);
+    } else if (type === "script") {
+      setScriptHistory([]);
+      setScriptComplianceError(null);
+    } else if (type === "features") {
+      setFeaturesHistory([]);
+      setFeaturesComplianceError(null);
+    }
+  };
+
   const handleRegenerateFeatures = async () => {
     if (!currentListingIdDesc) {
       toast.error("Please generate content first");
@@ -1518,6 +1808,10 @@ export default function GeneratePage() {
                     : null
                 }
                 onCopy={handleCopy}
+                onRefine={handleRefineRemarks}
+                isRefining={isRefiningRemarks}
+                complianceError={remarksComplianceError}
+                onClearComplianceError={() => setRemarksComplianceError(null)}
               />
 
               <GeneratedSection
@@ -1540,6 +1834,10 @@ export default function GeneratePage() {
                     : null
                 }
                 onCopy={handleCopy}
+                onRefine={handleRefineScript}
+                isRefining={isRefiningScript}
+                complianceError={scriptComplianceError}
+                onClearComplianceError={() => setScriptComplianceError(null)}
               >
                 {/* Video Options - integrated into script section */}
                 {!videoData && (
@@ -1704,6 +2002,10 @@ export default function GeneratePage() {
                     : null
                 }
                 onCopy={handleCopy}
+                onRefine={handleRefineFeatures}
+                isRefining={isRefiningFeatures}
+                complianceError={featuresComplianceError}
+                onClearComplianceError={() => setFeaturesComplianceError(null)}
               />
 
             </main>

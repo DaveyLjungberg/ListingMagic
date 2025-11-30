@@ -993,3 +993,201 @@ export async function generateWalkthroughVideo(
     throw error;
   }
 }
+
+// =============================================================================
+// Content Refinement with Fair Housing Compliance
+// =============================================================================
+
+/**
+ * Conversation message for refinement history
+ */
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Compliance violation details
+ */
+export interface ComplianceViolation {
+  category: string;
+  matches: string[];
+  severity: string;
+  suggestion: string;
+}
+
+/**
+ * Response from content refinement endpoint
+ */
+export interface RefineContentResponse {
+  success: boolean;
+  refined_content?: string;
+  error?: string;
+  error_type?: string;
+  violations?: ComplianceViolation[];
+  message?: string;
+  processing_time_ms: number;
+}
+
+/**
+ * Property data for refinement context
+ */
+export interface PropertyDataForRefinement {
+  address?: {
+    full_address?: string;
+  };
+  bedrooms?: number;
+  bathrooms?: number;
+  sqft?: number;
+  price?: number;
+}
+
+/**
+ * Refine existing content with targeted AI edits
+ * Includes Fair Housing compliance validation
+ *
+ * @param contentType - Type of content: 'remarks', 'features', or 'script'
+ * @param currentContent - The current content to refine
+ * @param userInstruction - What the user wants to change
+ * @param conversationHistory - Previous refinement conversation
+ * @param propertyData - Property context for reference
+ */
+export async function refineContent(
+  contentType: "remarks" | "features" | "script",
+  currentContent: string,
+  userInstruction: string,
+  conversationHistory: ConversationMessage[] = [],
+  propertyData?: PropertyDataForRefinement
+): Promise<RefineContentResponse> {
+  try {
+    const backendUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "https://listingmagic-production.up.railway.app";
+
+    const response = await fetch(`${backendUrl}/api/refine-content`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content_type: contentType,
+        current_content: currentContent,
+        user_instruction: userInstruction,
+        conversation_history: conversationHistory,
+        property_data: propertyData,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to refine content");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error in refineContent:", error);
+    throw error;
+  }
+}
+
+/**
+ * Check text for Fair Housing compliance
+ */
+export interface ComplianceCheckResponse {
+  is_compliant: boolean;
+  violations: ComplianceViolation[];
+  message: string;
+}
+
+export async function checkFairHousingCompliance(
+  text: string
+): Promise<ComplianceCheckResponse> {
+  try {
+    const backendUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "https://listingmagic-production.up.railway.app";
+
+    const response = await fetch(`${backendUrl}/api/check-compliance`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to check compliance");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error in checkFairHousingCompliance:", error);
+    throw error;
+  }
+}
+
+/**
+ * Frontend Fair Housing compliance checker (quick local check)
+ * For immediate feedback before sending to backend
+ */
+export function checkFairHousingComplianceLocal(text: string): {
+  isCompliant: boolean;
+  violations: { category: string; matches: string[] }[];
+} {
+  const patterns: { category: string; regex: RegExp }[] = [
+    // Familial status
+    {
+      category: "familial_status",
+      regex:
+        /\b(adults?\s+only|no\s+children|no\s+kids|perfect\s+for\s+couples?|ideal\s+for\s+couples?|mature\s+(individual|person|couple)|empty\s+nesters?|singles?\s+only|adult\s+(community|living)|great\s+for\s+famil(y|ies)|perfect\s+for\s+famil(y|ies))\b/gi,
+    },
+    // Religion
+    {
+      category: "religion",
+      regex:
+        /\b(near\s+(church(es)?|synagogue|temple|mosque)|christian\s+(community|neighborhood)|jewish\s+(community|neighborhood))\b/gi,
+    },
+    // Race/ethnicity
+    {
+      category: "race_ethnicity",
+      regex:
+        /\b(white|black|asian|hispanic|latino|caucasian|african[\s-]american|diverse|ethnic)\s+(community|neighborhood|area)\b/gi,
+    },
+    // Disability
+    {
+      category: "disability",
+      regex:
+        /\b(no\s+wheelchairs?|able[\s-]bodied|healthy\s+only|no\s+disabled|not\s+suitable\s+for\s+disabled)\b/gi,
+    },
+    // Gender
+    {
+      category: "gender",
+      regex:
+        /\b(male|female|males?|females?)\s+(only|preferred)|bachelor\s+(pad|apartment)|gentleman('s)?\s+(apartment|residence)\b/gi,
+    },
+    // Age
+    {
+      category: "age",
+      regex:
+        /\b(senior(s)?\s+(only|preferred|community)|older\s+persons?\s+(only|preferred)|retirees?\s+(only|preferred)|golden\s+age)\b/gi,
+    },
+  ];
+
+  const violations: { category: string; matches: string[] }[] = [];
+
+  for (const { category, regex } of patterns) {
+    const matches = text.match(regex);
+    if (matches) {
+      violations.push({
+        category,
+        matches: [...new Set(matches)], // Remove duplicates
+      });
+    }
+  }
+
+  return {
+    isCompliant: violations.length === 0,
+    violations,
+  };
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { MLSDataResponse } from "@/types/api";
-import { CheckCircleIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
+// Icons removed - no longer showing Tax Records badge
 
 interface MLSDataDisplayProps {
   data: MLSDataResponse;
@@ -327,17 +327,10 @@ function EditableField({
       <label className="label">
         <span className="label-text font-medium text-primary-navy">{label}</span>
         <div className="flex gap-1">
-          {fromTaxRecords && (
-            <span className="badge-tax badge-xs gap-1 px-2 py-0.5 rounded-md flex items-center animate-bounce-in">
-              <CheckCircleIcon className="w-3 h-3" />
-              Tax Records
-            </span>
-          )}
-          {!fromTaxRecords && (
-            <span className={`badge ${confidence} badge-xs`}>
-              {confidence.includes("success") ? "High" : confidence.includes("warning") ? "Est" : ""}
-            </span>
-          )}
+          {/* Show "Est" badge for all fields (both tax records and AI estimated) */}
+          <span className={`badge ${fromTaxRecords ? "badge-warning" : confidence} badge-xs`}>
+            {confidence.includes("success") ? "High" : "Est"}
+          </span>
         </div>
       </label>
       {isEditable ? (

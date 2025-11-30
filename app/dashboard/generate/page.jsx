@@ -2150,6 +2150,8 @@ export default function GeneratePage() {
                       ref={addressInputMLSRef}
                       onAddressChange={handleAddressChangeMLS}
                       disabled={isGeneratingMLS}
+                      hideTaxFields={true}
+                      autoFetchTaxRecords={true}
                     />
                   </div>
 

@@ -4,7 +4,7 @@ import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallba
 import toast from "react-hot-toast";
 import { DocumentTextIcon, CheckCircleIcon, MapPinIcon } from "@heroicons/react/24/outline";
 
-const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFields = false }, ref) => {
+const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFields = false, autoFetchTaxRecords = false }, ref) => {
   const [address, setAddressState] = useState({
     street: "",
     zip: "",
@@ -251,6 +251,63 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
   }, [address.street, taxRecordsLoaded]);
 
   const canFetchTaxRecords = address.street && address.city && address.state && address.zip.length === 5;
+
+  // Auto-fetch tax records when address is complete (silent background fetch)
+  const hasAttemptedAutoFetch = useRef(false);
+  useEffect(() => {
+    if (!autoFetchTaxRecords) return;
+    if (!canFetchTaxRecords) return;
+    if (taxRecordsLoaded) return;
+    if (hasAttemptedAutoFetch.current) return;
+    if (loadingTaxRecords) return;
+
+    // Debounce to avoid fetching while user is still typing
+    const timeoutId = setTimeout(async () => {
+      hasAttemptedAutoFetch.current = true;
+      console.log('[AutoFetch] Address complete, fetching tax records silently...');
+
+      try {
+        const res = await fetch('/api/lookup-tax-records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: address.street,
+            city: address.city,
+            state: address.state,
+            zip: address.zip
+          })
+        });
+
+        const result = await res.json();
+
+        if (result.success && result.data) {
+          const newTaxData = {
+            apn: result.data.apn || "",
+            yearBuilt: result.data.yearBuilt?.toString() || "",
+            lotSize: result.data.lotSize || "",
+            county: result.data.county || "",
+          };
+          setTaxData(newTaxData);
+          setTaxRecordsLoaded(true);
+          notifyParent(address, newTaxData);
+          console.log('[AutoFetch] Tax records loaded silently:', result.data);
+        } else {
+          console.log('[AutoFetch] Tax records not found, will use AI estimates');
+        }
+      } catch (error) {
+        console.log('[AutoFetch] Tax fetch failed silently:', error.message);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [autoFetchTaxRecords, canFetchTaxRecords, taxRecordsLoaded, loadingTaxRecords, address, notifyParent]);
+
+  // Reset auto-fetch flag when address changes significantly
+  useEffect(() => {
+    if (!address.street || !address.zip) {
+      hasAttemptedAutoFetch.current = false;
+    }
+  }, [address.street, address.zip]);
 
   return (
     <div className={`space-y-4 ${disabled ? 'opacity-60' : ''}`}>

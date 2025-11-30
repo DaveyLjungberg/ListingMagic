@@ -14,6 +14,7 @@ import {
   generateWalkthruScript,
   generatePublicRemarks,
   generateMLSDataWithStorage,
+  generateWalkthroughVideo,
   convertPhotosToImageInputs,
   formatGenerationTime,
   formatCost,
@@ -73,6 +74,12 @@ export default function GeneratePage() {
   // Photo compliance scanning state for MLS
   const [complianceReportMLS, setComplianceReportMLS] = useState(null);
   const [scanningComplianceMLS, setScanningComplianceMLS] = useState(false);
+
+  // =========================================================================
+  // VIDEO GENERATION STATE
+  // =========================================================================
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoData, setVideoData] = useState(null);
 
   // Get current user on mount
   useEffect(() => {
@@ -934,6 +941,64 @@ export default function GeneratePage() {
     }
   };
 
+  // Handle video generation from walk-thru script
+  const handleGenerateVideo = async () => {
+    // Check if we have a walk-thru script
+    const script = generationState.walkthruScript.data?.script;
+    if (!script) {
+      toast.error("Please generate a walk-thru script first");
+      return;
+    }
+
+    // Check if we have photos
+    if (!photoUrlsDesc || photoUrlsDesc.length === 0) {
+      toast.error("No photos available for video generation");
+      return;
+    }
+
+    // Check if we have a listing ID
+    if (!currentListingIdDesc) {
+      toast.error("Please generate content first");
+      return;
+    }
+
+    setIsGeneratingVideo(true);
+    setVideoData(null);
+
+    const toastId = toast.loading("Generating video... (1-2 minutes)", { duration: 180000 });
+
+    try {
+      const result = await generateWalkthroughVideo(
+        script,
+        photoUrlsDesc,
+        currentListingIdDesc,
+        (message) => {
+          toast.loading(message, { id: toastId });
+        }
+      );
+
+      setVideoData(result);
+
+      if (!result.has_voiceover) {
+        toast.success(
+          `Video ready (${Math.round(result.duration_seconds)}s) - no voiceover, script available separately`,
+          { id: toastId, duration: 5000 }
+        );
+      } else {
+        toast.success(
+          `Video ready! ${Math.round(result.duration_seconds)}s with professional voiceover`,
+          { id: toastId, duration: 5000 }
+        );
+      }
+    } catch (error) {
+      console.error("Video generation error:", error);
+      const friendlyError = getFriendlyErrorMessage(error);
+      toast.error(friendlyError, { id: toastId });
+    } finally {
+      setIsGeneratingVideo(false);
+    }
+  };
+
   const handleRegenerateFeatures = async () => {
     if (!currentListingIdDesc) {
       toast.error("Please generate content first");
@@ -1012,14 +1077,20 @@ export default function GeneratePage() {
       disabled: generationState.walkthruScript.status === "loading",
     },
     {
-      label: "Generate Video",
+      label: isGeneratingVideo ? "Generating Video..." : "Generate Video",
       variant: "primary",
-      icon: (
+      icon: isGeneratingVideo ? (
+        <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      ) : (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
           <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
         </svg>
       ),
-      onClick: () => console.log("Generate video"),
+      onClick: handleGenerateVideo,
+      disabled: isGeneratingVideo || !generationState.walkthruScript.data?.script || photoUrlsDesc.length === 0,
     },
   ];
 
@@ -1335,6 +1406,53 @@ export default function GeneratePage() {
                 }
                 onCopy={handleCopy}
               />
+
+              {/* Video Download Links */}
+              {videoData && (
+                <div className="card bg-base-100 border border-success/30 animate-fade-in">
+                  <div className="card-body py-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-success/10 rounded-lg">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-success">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">Video Ready!</p>
+                          <p className="text-xs text-base-content/60">
+                            {Math.round(videoData.duration_seconds)}s {videoData.has_voiceover ? "with voiceover" : "(silent)"} • {videoData.photos_used} photos
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <a
+                          href={videoData.video_url}
+                          download="walkthrough_video.mp4"
+                          className="btn btn-success btn-sm gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                          Download Video
+                        </a>
+                        {videoData.script_url && (
+                          <a
+                            href={videoData.script_url}
+                            download="walkthrough_script.txt"
+                            className="btn btn-ghost btn-sm gap-2"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                            Script
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <GeneratedSection
                 title="Features Sheet"

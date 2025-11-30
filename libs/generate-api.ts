@@ -922,3 +922,68 @@ export async function generateMLSDataWithStorage(
     throw error;
   }
 }
+
+// =============================================================================
+// Video Generation with ElevenLabs TTS
+// =============================================================================
+
+/**
+ * Video generation response from backend
+ */
+export interface VideoGenerationResponse {
+  success: boolean;
+  video_url: string;
+  script_url?: string;
+  has_voiceover: boolean;
+  duration_seconds: number;
+  processing_time_seconds: number;
+  photos_used: number;
+}
+
+/**
+ * Generate walkthrough video with voiceover
+ * @param script - Walk-thru script text
+ * @param photoUrls - Array of public URLs to photos
+ * @param listingId - Listing ID for storage path
+ * @param onProgress - Optional callback for progress updates
+ */
+export async function generateWalkthroughVideo(
+  script: string,
+  photoUrls: string[],
+  listingId: string,
+  onProgress?: (message: string) => void
+): Promise<VideoGenerationResponse> {
+  try {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
+
+    onProgress?.("Preparing video generation...");
+
+    const response = await fetch(`${backendUrl}/api/generate-video`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        script,
+        photo_urls: photoUrls,
+        listing_id: listingId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to generate video");
+    }
+
+    const result = await response.json();
+
+    if (!result.success) {
+      throw new Error("Video generation failed");
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error in generateWalkthroughVideo:", error);
+    throw error;
+  }
+}

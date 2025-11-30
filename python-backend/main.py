@@ -26,14 +26,12 @@ from models import (
     WalkthruScriptRequest,
     FeaturesRequest,
     ResoDataRequest,
-    VideoGenerationRequest,
     # Responses
     HealthResponse,
     PublicRemarksResponse,
     WalkthruScriptResponse,
     FeaturesResponse,
     ResoDataResponse,
-    VideoGenerationResponse,
     ErrorResponse
 )
 from services import OpenAIService, AnthropicService, GeminiService
@@ -42,6 +40,7 @@ from services.anthropic_service import get_anthropic_service
 from services.gemini_service import get_gemini_service
 from utils import get_cost_tracker
 from endpoints.mls_data import router as mls_router
+from endpoints.video_generation import router as video_router
 
 # Configure logging
 logging.basicConfig(
@@ -129,6 +128,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(mls_router)
+app.include_router(video_router)
 
 
 # =============================================================================
@@ -472,48 +472,6 @@ async def generate_reso_data(
             status_code=500,
             detail=f"Failed to generate RESO data: {str(e)}"
         )
-
-
-# =============================================================================
-# Video Generation Endpoint
-# =============================================================================
-
-@app.post(
-    "/api/generate-video",
-    response_model=VideoGenerationResponse,
-    tags=["Video Generation"]
-)
-async def generate_video(
-    request: VideoGenerationRequest
-) -> VideoGenerationResponse:
-    """
-    Generate property video with voiceover.
-
-    Combines:
-    - Property photos
-    - Walk-thru script (voiceover)
-    - Background music (optional)
-
-    Uses MoviePy for video assembly.
-    """
-    logger.info(
-        f"Generating video for: {request.property_details.address.full_address}, "
-        f"resolution: {request.resolution}"
-    )
-
-    # TODO: Implement video generation with MoviePy
-
-    # Mock response for now
-    return VideoGenerationResponse(
-        success=True,
-        video_url="https://storage.listingmagic.com/videos/sample-video.mp4",
-        thumbnail_url="https://storage.listingmagic.com/thumbnails/sample-thumb.jpg",
-        duration_seconds=request.duration_seconds or 120,
-        file_size_mb=45.2,
-        resolution=request.resolution,
-        processing_time_seconds=30.5,
-        photos_used=len(request.property_details.photos)
-    )
 
 
 # =============================================================================

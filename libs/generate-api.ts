@@ -30,7 +30,7 @@ const IMAGE_CONFIG = {
   maxWidth: 1024,        // Max width in pixels
   maxHeight: 1024,       // Max height in pixels
   quality: 0.8,          // JPEG quality (0-1)
-  maxImages: 5,          // Maximum number of images to process
+  maxImages: 20,         // Maximum number of images to process (matches backend VISION_CONFIG)
   outputType: "image/jpeg" as const,
 };
 

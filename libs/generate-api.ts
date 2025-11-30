@@ -20,6 +20,20 @@ import type {
   MLSModel,
 } from "@/types/api";
 import { uploadPhotosToStorage } from "./supabase-storage-upload";
+import {
+  selectPhotosIntelligently,
+  categorizePhotos,
+  selectBestPhotos,
+  type PhotoCategory,
+} from "./photo-selection";
+
+// Re-export photo selection utilities
+export {
+  selectPhotosIntelligently,
+  categorizePhotos,
+  selectBestPhotos,
+  type PhotoCategory,
+};
 
 // =============================================================================
 // Image Compression & Conversion
@@ -195,24 +209,69 @@ function getPhotoUrl(photo: PhotoData): string | null {
 
 /**
  * Convert PhotoData array to ImageInput array for API requests
- * Compresses images and limits to max 5 images
+ * Uses intelligent photo selection when more than maxImages are provided
  * Handles both File objects (fresh uploads) and URLs (loaded listings)
  */
 export async function convertPhotosToImageInputs(
-  photos: PhotoData[]
+  photos: PhotoData[],
+  photoUrls?: string[] // Optional: pre-uploaded URLs for intelligent selection
 ): Promise<ImageInput[]> {
-  // Limit number of images
+  // If we have more photos than the limit and have URLs, use intelligent selection
+  if (photos.length > IMAGE_CONFIG.maxImages && photoUrls && photoUrls.length > 0) {
+    console.log(
+      `[convertPhotosToImageInputs] ${photos.length} photos > ${IMAGE_CONFIG.maxImages} limit - using intelligent selection`
+    );
+
+    try {
+      // Use intelligent selection to pick the best photos
+      const { selectedUrls, categories } = await selectPhotosIntelligently(
+        photoUrls,
+        IMAGE_CONFIG.maxImages
+      );
+
+      // Get the indices of selected photos
+      const selectedIndices = new Set(
+        categories.map((cat) => cat.index)
+      );
+
+      // Filter photos to only the selected ones
+      const selectedPhotos = photos.filter((_, index) => selectedIndices.has(index));
+
+      console.log(
+        `[convertPhotosToImageInputs] Intelligent selection chose ${selectedPhotos.length} photos from ${photos.length}`
+      );
+
+      // Process only the selected photos
+      return await processPhotosToImageInputs(selectedPhotos, selectedUrls);
+    } catch (error) {
+      console.error("[convertPhotosToImageInputs] Intelligent selection failed, falling back to first N:", error);
+      // Fall through to standard processing
+    }
+  }
+
+  // Standard processing (for <= maxImages or when intelligent selection fails)
   const photosToProcess = photos.slice(0, IMAGE_CONFIG.maxImages);
 
   if (photos.length > IMAGE_CONFIG.maxImages) {
     console.warn(
-      `Limiting to ${IMAGE_CONFIG.maxImages} images (${photos.length} provided)`
+      `Limiting to ${IMAGE_CONFIG.maxImages} images (${photos.length} provided) - no URLs available for intelligent selection`
     );
   }
 
+  return await processPhotosToImageInputs(photosToProcess);
+}
+
+/**
+ * Internal function to process photos to ImageInput array
+ */
+async function processPhotosToImageInputs(
+  photos: PhotoData[],
+  selectedUrls?: string[]
+): Promise<ImageInput[]> {
   const imageInputs: ImageInput[] = [];
 
-  for (const photo of photosToProcess) {
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
     try {
       let base64: string;
 
@@ -220,9 +279,9 @@ export async function convertPhotosToImageInputs(
       if (photo.file && photo.file instanceof File) {
         base64 = await compressImage(photo.file);
       }
-      // Otherwise try to use the URL (loaded from database)
+      // Otherwise try to use the URL (from selectedUrls or photo object)
       else {
-        const url = getPhotoUrl(photo);
+        const url = selectedUrls?.[i] || getPhotoUrl(photo);
         if (url && url.startsWith('http')) {
           base64 = await compressImageFromUrl(url);
         } else {

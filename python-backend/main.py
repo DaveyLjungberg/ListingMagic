@@ -42,6 +42,7 @@ from utils import get_cost_tracker
 from endpoints.mls_data import router as mls_router
 from endpoints.video_generation import router as video_router
 from endpoints.refine_content import router as refine_router
+from endpoints.photo_categorization import router as photo_categorization_router
 
 # Configure logging
 logging.basicConfig(
@@ -131,6 +132,7 @@ app.add_middleware(
 app.include_router(mls_router)
 app.include_router(video_router)
 app.include_router(refine_router)
+app.include_router(photo_categorization_router)
 
 
 # =============================================================================

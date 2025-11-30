@@ -466,6 +466,9 @@ export default function GeneratePage() {
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Uploading photos..." });
       toast.loading("Uploading photos...", { id: "generating-desc" });
 
+      // Track URLs for intelligent photo selection
+      let currentPhotoUrls = photoUrlsDesc;
+
       // Only upload if we have File objects (fresh uploads), not if photos are already URLs
       const hasFileObjects = photosDesc.some(p => p.file && p.file instanceof File);
       if (hasFileObjects && user?.id) {
@@ -478,6 +481,7 @@ export default function GeneratePage() {
         }
         if (uploadedUrls.length > 0) {
           setPhotoUrlsDesc(uploadedUrls);
+          currentPhotoUrls = uploadedUrls; // Use immediately for selection
           console.log("[handleGenerateAllDesc] Uploaded photos to Supabase:", uploadedUrls);
         }
       } else if (!hasFileObjects && photoUrlsDesc.length > 0) {
@@ -485,10 +489,10 @@ export default function GeneratePage() {
         console.log("[handleGenerateAllDesc] Using existing photo URLs:", photoUrlsDesc);
       }
 
-      // Convert photos to base64 for API calls
+      // Convert photos to base64 for API calls (with intelligent selection if > 20 photos)
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Preparing photos..." });
       toast.loading("Preparing photos...", { id: "generating-desc" });
-      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+      const imageInputs = await convertPhotosToImageInputs(photosDesc, currentPhotoUrls);
 
       // Build property details
       const propertyDetails = {
@@ -926,8 +930,8 @@ export default function GeneratePage() {
     }));
 
     try {
-      // Convert photos to base64 for API
-      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+      // Convert photos to base64 for API (with intelligent selection if > 20 photos)
+      const imageInputs = await convertPhotosToImageInputs(photosDesc, photoUrlsDesc);
 
       const propertyDetails = {
         address: addressDesc,
@@ -975,7 +979,8 @@ export default function GeneratePage() {
     }));
 
     try {
-      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+      // Convert photos to base64 for API (with intelligent selection if > 20 photos)
+      const imageInputs = await convertPhotosToImageInputs(photosDesc, photoUrlsDesc);
 
       const propertyDetails = {
         address: addressDesc,
@@ -1436,7 +1441,8 @@ export default function GeneratePage() {
     }));
 
     try {
-      const imageInputs = await convertPhotosToImageInputs(photosDesc);
+      // Convert photos to base64 for API (with intelligent selection if > 20 photos)
+      const imageInputs = await convertPhotosToImageInputs(photosDesc, photoUrlsDesc);
 
       const propertyDetails = {
         address: addressDesc,

@@ -1803,6 +1803,7 @@ export default function GeneratePage() {
                       onAddressChange={handleAddressChangeDesc}
                       disabled={isGeneratingDesc}
                       hideTaxFields={true}
+                      autoFetchTaxRecords={true}
                     />
                   </div>
 

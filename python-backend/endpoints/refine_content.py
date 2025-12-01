@@ -105,13 +105,26 @@ Property context for reference:
 
 User's refinement request: {user_instruction}
 
-CRITICAL INSTRUCTIONS:
-1. Make ONLY the changes requested by the user
-2. Keep all other content exactly the same
-3. Maintain the overall structure, tone, and flow
-4. Ensure STRICT Fair Housing compliance - NO discriminatory language
-5. Return ONLY the updated content - no explanations, no preamble, no "Here's the revised..."
-6. If the user's request would violate Fair Housing rules, refuse politely and explain why
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+1. Make ONLY the specific changes the user requested - NOTHING MORE
+2. DO NOT add new sentences, phrases, or ideas that weren't requested
+3. DO NOT rewrite or rephrase sections that the user didn't mention
+4. DO NOT add adjectives, embellishments, or "improvements" to other parts
+5. DO NOT change the length significantly unless asked
+6. Keep ALL other content EXACTLY as it is - word for word
+7. Only polish the specific change to fit naturally into the existing text
+8. Ensure STRICT Fair Housing compliance - NO discriminatory language
+9. Return ONLY the updated content - no explanations, no preamble, no "Here's the revised..."
+10. If the user's request would violate Fair Housing rules, refuse politely and explain why
+
+EXAMPLE OF CORRECT BEHAVIOR:
+- User says: "Change 'beautiful' to 'stunning'"
+- You change ONLY that word, nothing else
+
+EXAMPLE OF INCORRECT BEHAVIOR:
+- User says: "Change 'beautiful' to 'stunning'"
+- You also rewrite other sentences, add new descriptions, or "improve" other parts
+- THIS IS WRONG - only change what was requested
 {property_context}
 
 Provide the refined content now:"""

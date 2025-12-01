@@ -452,7 +452,7 @@ export default function GeneratePage() {
     setIsGeneratingDesc(true);
     let successCount = 0;
     let rateLimitHit = false;
-    const totalSteps = 3; // Public Remarks, Walk-thru, Features
+    const totalSteps = 4; // Public Remarks, Walk-thru, Features, MLS Data
 
     // Reset all states
     setGenerationState({
@@ -460,6 +460,9 @@ export default function GeneratePage() {
       walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
     });
+    // Reset MLS data as well
+    setMlsData(null);
+    setMlsDataEditable(null);
 
     try {
       // Step 0: Upload photos to Supabase Storage (for saving later)
@@ -580,6 +583,49 @@ export default function GeneratePage() {
           if (isRateLimitError(error)) {
             rateLimitHit = true;
           }
+        }
+      }
+
+      // STEP 4: MLS Data (Claude) - only if no rate limit
+      if (!rateLimitHit) {
+        setGenerationProgressDesc({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
+        toast.loading(`Extracting MLS data... (4/${totalSteps})`, { id: "generating-desc" });
+
+        try {
+          // Format address string for MLS
+          const addressString = addressDesc
+            ? `${addressDesc.street}, ${addressDesc.city || ""}, ${addressDesc.state || ""} ${addressDesc.zip_code}`.trim()
+            : "";
+
+          // Get tax data from AddressInput ref
+          const taxData = addressInputDescRef.current?.getTaxData?.();
+
+          // Generate MLS data using photos already uploaded to Supabase
+          const { mlsData: mlsResult, photoUrls: mlsPhotoUrls } = await generateMLSDataWithStorage(
+            photosDesc,
+            addressString,
+            user?.id,
+            "claude",
+            () => {}, // No individual toast updates since we're showing overall progress
+            taxData
+          );
+
+          setMlsData(mlsResult);
+          // Sync photos to MLS tab state
+          if (mlsPhotoUrls.length > 0) {
+            setPhotoUrlsMLS(mlsPhotoUrls);
+          } else if (currentPhotoUrls.length > 0) {
+            setPhotoUrlsMLS(currentPhotoUrls);
+          }
+          // Sync address to MLS tab
+          setAddressMLS(addressDesc);
+          successCount++;
+        } catch (error) {
+          console.error("MLS generation error:", error);
+          // MLS errors don't stop the overall process, just log it
+          const friendlyError = getFriendlyErrorMessage(error);
+          console.warn(`MLS generation failed: ${friendlyError}`);
+          // Still consider partial success - descriptions were generated
         }
       }
 
@@ -862,11 +908,16 @@ export default function GeneratePage() {
     toast.success("Photo removed");
   };
 
-  const isFormReadyMLS = photosMLS.length > 0 && addressMLS?.street && addressMLS?.zip_code?.length === 5;
+  // Check if MLS form is ready - either has uploaded photos OR has photos from Descriptions tab
+  const hasMLSPhotos = photosMLS.length > 0 || photoUrlsMLS.length > 0;
+  const isFormReadyMLS = hasMLSPhotos && addressMLS?.street && addressMLS?.zip_code?.length === 5;
 
   // Handle generate MLS data
   const handleGenerateMLS = async () => {
-    if (!isFormReadyMLS) {
+    // Special case: regenerating from Descriptions tab photos
+    const usingDescPhotos = photosMLS.length === 0 && photoUrlsMLS.length > 0;
+
+    if (!usingDescPhotos && !isFormReadyMLS) {
       toast.error("Please upload photos and enter a complete address");
       return;
     }
@@ -879,24 +930,32 @@ export default function GeneratePage() {
     setIsGeneratingMLS(true);
 
     try {
-      // Format address string
-      const addressString = addressMLS
-        ? `${addressMLS.street}, ${addressMLS.city || ""}, ${addressMLS.state || ""} ${addressMLS.zip_code}`.trim()
+      // Format address string - use MLS address, or fall back to Descriptions address
+      const effectiveAddress = addressMLS || addressDesc;
+      const addressString = effectiveAddress
+        ? `${effectiveAddress.street}, ${effectiveAddress.city || ""}, ${effectiveAddress.state || ""} ${effectiveAddress.zip_code}`.trim()
         : "";
 
       // Get tax data from AddressInput ref if it exists
-      const taxData = addressInputMLSRef.current?.getTaxData?.();
+      // Try MLS ref first, then fallback to Descriptions ref
+      const taxData = addressInputMLSRef.current?.getTaxData?.() || addressInputDescRef.current?.getTaxData?.();
       console.log("[handleGenerateMLS] Tax data:", taxData);
+
+      // Determine which photos to use
+      // If we have fresh uploads, use those; otherwise use existing URLs
+      const photosToUse = photosMLS.length > 0 ? photosMLS : [];
+      const existingUrls = photoUrlsMLS.length > 0 ? photoUrlsMLS : photoUrlsDesc;
 
       // Upload photos to Supabase Storage first, then send URLs to Claude
       // This bypasses Vercel's 4.5MB payload limit
       const { mlsData: result, photoUrls } = await generateMLSDataWithStorage(
-        photosMLS,
+        photosToUse,
         addressString,
         user.id,
         "claude",
         (message) => toast.loading(message, { id: "mls-generating" }),
-        taxData // Pass tax data to backend
+        taxData, // Pass tax data to backend
+        existingUrls // Pass existing URLs for regeneration case
       );
 
       setMlsData(result);
@@ -2026,32 +2085,90 @@ export default function GeneratePage() {
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                  {/* Listing Loader & Clear Button */}
-                  <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
-                    <button
-                      onClick={handleClearMLSData}
-                      disabled={isGeneratingMLS || !hasMLSDataToClear}
-                      className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
-                      title="Clear all data and start fresh"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                      </svg>
-                      Clear
-                    </button>
-                    <ListingLoader
-                      listingType="mls_data"
-                      userId={user?.id}
-                      onSelectListing={handleLoadMLSListing}
-                      disabled={isGeneratingMLS}
-                    />
-                  </div>
+                  {/* If MLS was generated from Descriptions tab, show simplified sidebar */}
+                  {mlsData && photosMLS.length === 0 && photoUrlsMLS.length > 0 ? (
+                    <>
+                      {/* Info Banner - Generated from Descriptions */}
+                      <div className="alert alert-success">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div className="flex-1">
+                          <span className="font-medium">Generated from Descriptions</span>
+                          <p className="text-xs opacity-70 mt-0.5">
+                            MLS data extracted using {photoUrlsMLS.length} photos from the Descriptions tab
+                          </p>
+                        </div>
+                      </div>
 
-                  <PhotoUploader
-                    ref={photoUploaderMLSRef}
-                    onPhotosChange={handlePhotosChangeMLS}
-                    disabled={isGeneratingMLS}
-                  />
+                      {/* Address Summary */}
+                      {addressMLS && (
+                        <div className="bg-base-200/50 rounded-xl p-4">
+                          <p className="text-sm font-medium text-base-content/80">Property Address</p>
+                          <p className="text-base-content mt-1">
+                            {addressMLS.street}, {addressMLS.city}, {addressMLS.state} {addressMLS.zip_code}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Regenerate MLS Button */}
+                      <button
+                        onClick={handleGenerateMLS}
+                        disabled={isGeneratingMLS}
+                        className="btn btn-outline btn-sm w-full gap-2"
+                      >
+                        {isGeneratingMLS ? (
+                          <>
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Regenerating...
+                          </>
+                        ) : (
+                          <>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                            </svg>
+                            Re-extract MLS Data
+                          </>
+                        )}
+                      </button>
+
+                      {/* Clear Button - to start fresh on MLS tab */}
+                      <button
+                        onClick={handleClearMLSData}
+                        className="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-error"
+                      >
+                        Clear & upload new photos
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Standard MLS Tab View - Photo Upload & Address */}
+                      {/* Listing Loader & Clear Button */}
+                      <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
+                        <button
+                          onClick={handleClearMLSData}
+                          disabled={isGeneratingMLS || !hasMLSDataToClear}
+                          className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
+                          title="Clear all data and start fresh"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                          </svg>
+                          Clear
+                        </button>
+                        <ListingLoader
+                          listingType="mls_data"
+                          userId={user?.id}
+                          onSelectListing={handleLoadMLSListing}
+                          disabled={isGeneratingMLS}
+                        />
+                      </div>
+
+                      <PhotoUploader
+                        ref={photoUploaderMLSRef}
+                        onPhotosChange={handlePhotosChangeMLS}
+                        disabled={isGeneratingMLS}
+                      />
 
                   {/* Photo Compliance Scanner for MLS */}
                   {photosMLS.length > 0 && (
@@ -2189,6 +2306,8 @@ export default function GeneratePage() {
                       </p>
                     )}
                   </div>
+                    </>
+                  )}
                 </div>
               </div>
             </aside>

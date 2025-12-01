@@ -924,22 +924,33 @@ export async function generateMLSDataWithStorage(
   userId: string,
   model: MLSModel = "claude",
   onProgress?: (message: string) => void,
-  taxData?: TaxData
+  taxData?: TaxData,
+  existingUrls?: string[]  // Optional: use existing URLs instead of uploading
 ): Promise<{ mlsData: MLSDataResponse; photoUrls: string[] }> {
   try {
-    // Step 1: Upload photos to Supabase Storage
-    onProgress?.("Uploading photos to storage...");
-    const { urls: photoUrls, errors } = await uploadPhotosToStorage(photos, userId);
+    let photoUrls: string[];
 
-    if (errors.length > 0) {
-      console.warn(`${errors.length} photos failed to upload:`, errors);
+    // If existing URLs are provided (e.g., from Descriptions tab), use those instead of uploading
+    if (existingUrls && existingUrls.length > 0 && photos.length === 0) {
+      console.log("[generateMLSDataWithStorage] Using existing photo URLs:", existingUrls.length);
+      photoUrls = existingUrls;
+      onProgress?.(`Using ${photoUrls.length} existing photos. Analyzing with ${model}...`);
+    } else {
+      // Step 1: Upload photos to Supabase Storage
+      onProgress?.("Uploading photos to storage...");
+      const { urls: uploadedUrls, errors } = await uploadPhotosToStorage(photos, userId);
+
+      if (errors.length > 0) {
+        console.warn(`${errors.length} photos failed to upload:`, errors);
+      }
+
+      if (uploadedUrls.length === 0) {
+        throw new Error("No photos were successfully uploaded");
+      }
+
+      photoUrls = uploadedUrls;
+      onProgress?.(`${photoUrls.length} photos uploaded. Analyzing with ${model}...`);
     }
-
-    if (photoUrls.length === 0) {
-      throw new Error("No photos were successfully uploaded");
-    }
-
-    onProgress?.(`${photoUrls.length} photos uploaded. Analyzing with ${model}...`);
 
     // Step 2: Send the ACTUAL URLS (not photos) directly to backend
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";

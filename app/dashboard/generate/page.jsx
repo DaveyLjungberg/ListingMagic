@@ -914,11 +914,17 @@ export default function GeneratePage() {
 
   // Handle generate MLS data
   const handleGenerateMLS = async () => {
-    // Special case: regenerating from Descriptions tab photos
-    const usingDescPhotos = photosMLS.length === 0 && photoUrlsMLS.length > 0;
+    // Check if using photos from Descriptions tab (either via MLS URLs or directly from Desc URLs)
+    const usingDescPhotos = photosMLS.length === 0 && (photoUrlsMLS.length > 0 || photoUrlsDesc.length > 0);
+    const hasValidAddress = addressMLS?.street || addressDesc?.street;
 
     if (!usingDescPhotos && !isFormReadyMLS) {
       toast.error("Please upload photos and enter a complete address");
+      return;
+    }
+
+    if (usingDescPhotos && !hasValidAddress) {
+      toast.error("Please enter a complete address on the Descriptions tab first");
       return;
     }
 
@@ -2085,49 +2091,70 @@ export default function GeneratePage() {
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                  {/* If MLS was generated from Descriptions tab, show simplified sidebar */}
-                  {mlsData && photosMLS.length === 0 && photoUrlsMLS.length > 0 ? (
+                  {/* Show simplified sidebar when:
+                      1. MLS data exists and came from Descriptions tab, OR
+                      2. No MLS-specific photos uploaded but Descriptions tab has photos ready */}
+                  {(mlsData && photosMLS.length === 0 && photoUrlsMLS.length > 0) ||
+                   (photosMLS.length === 0 && photoUrlsDesc.length > 0 && addressDesc?.street) ? (
                     <>
-                      {/* Info Banner - Generated from Descriptions */}
-                      <div className="alert alert-success">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div className="flex-1">
-                          <span className="font-medium">Generated from Descriptions</span>
-                          <p className="text-xs opacity-70 mt-0.5">
-                            MLS data extracted using {photoUrlsMLS.length} photos from the Descriptions tab
-                          </p>
+                      {/* Info Banner */}
+                      {mlsData ? (
+                        <div className="alert alert-success">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div className="flex-1">
+                            <span className="font-medium">MLS Data Extracted</span>
+                            <p className="text-xs opacity-70 mt-0.5">
+                              Using {photoUrlsMLS.length || photoUrlsDesc.length} photos from Descriptions tab
+                            </p>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="alert alert-info">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                          </svg>
+                          <div className="flex-1">
+                            <span className="font-medium">Using Descriptions Data</span>
+                            <p className="text-xs opacity-70 mt-0.5">
+                              {photoUrlsDesc.length} photos ready from Descriptions tab
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Address Summary */}
-                      {addressMLS && (
+                      {(addressMLS || addressDesc) && (
                         <div className="bg-base-200/50 rounded-xl p-4">
                           <p className="text-sm font-medium text-base-content/80">Property Address</p>
                           <p className="text-base-content mt-1">
-                            {addressMLS.street}, {addressMLS.city}, {addressMLS.state} {addressMLS.zip_code}
+                            {(addressMLS || addressDesc).street}, {(addressMLS || addressDesc).city}, {(addressMLS || addressDesc).state} {(addressMLS || addressDesc).zip_code}
                           </p>
                         </div>
                       )}
 
-                      {/* Regenerate MLS Button */}
+                      {/* Generate/Regenerate MLS Button */}
                       <button
                         onClick={handleGenerateMLS}
                         disabled={isGeneratingMLS}
-                        className="btn btn-outline btn-sm w-full gap-2"
+                        className={`btn w-full gap-2 ${mlsData ? 'btn-outline btn-sm' : 'btn-primary'}`}
                       >
                         {isGeneratingMLS ? (
                           <>
                             <span className="loading loading-spinner loading-sm"></span>
-                            Regenerating...
+                            {mlsData ? 'Regenerating...' : 'Extracting MLS Data...'}
                           </>
                         ) : (
                           <>
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                              {mlsData ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                              ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+                              )}
                             </svg>
-                            Re-extract MLS Data
+                            {mlsData ? 'Re-extract MLS Data' : 'Generate MLS Data'}
                           </>
                         )}
                       </button>
@@ -2137,7 +2164,7 @@ export default function GeneratePage() {
                         onClick={handleClearMLSData}
                         className="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-error"
                       >
-                        Clear & upload new photos
+                        Clear & upload different photos
                       </button>
                     </>
                   ) : (

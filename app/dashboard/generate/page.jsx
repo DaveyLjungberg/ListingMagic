@@ -912,19 +912,14 @@ export default function GeneratePage() {
   const hasMLSPhotos = photosMLS.length > 0 || photoUrlsMLS.length > 0;
   const isFormReadyMLS = hasMLSPhotos && addressMLS?.street && addressMLS?.zip_code?.length === 5;
 
-  // Handle generate MLS data
+  // Handle generate MLS data - always uses data from Descriptions tab
   const handleGenerateMLS = async () => {
-    // Check if using photos from Descriptions tab (either via MLS URLs or directly from Desc URLs)
-    const usingDescPhotos = photosMLS.length === 0 && (photoUrlsMLS.length > 0 || photoUrlsDesc.length > 0);
-    const hasValidAddress = addressMLS?.street || addressDesc?.street;
+    // Check if Descriptions tab has required data
+    const hasPhotos = photoUrlsDesc.length > 0 || photosDesc.length > 0;
+    const hasAddress = addressDesc?.street && addressDesc?.zip_code;
 
-    if (!usingDescPhotos && !isFormReadyMLS) {
-      toast.error("Please upload photos and enter a complete address");
-      return;
-    }
-
-    if (usingDescPhotos && !hasValidAddress) {
-      toast.error("Please enter a complete address on the Descriptions tab first");
+    if (!hasPhotos || !hasAddress) {
+      toast.error("Please upload photos and enter an address on the Descriptions tab first");
       return;
     }
 
@@ -936,39 +931,34 @@ export default function GeneratePage() {
     setIsGeneratingMLS(true);
 
     try {
-      // Format address string - use MLS address, or fall back to Descriptions address
-      const effectiveAddress = addressMLS || addressDesc;
-      const addressString = effectiveAddress
-        ? `${effectiveAddress.street}, ${effectiveAddress.city || ""}, ${effectiveAddress.state || ""} ${effectiveAddress.zip_code}`.trim()
-        : "";
+      // Format address string from Descriptions tab
+      const addressString = `${addressDesc.street}, ${addressDesc.city || ""}, ${addressDesc.state || ""} ${addressDesc.zip_code}`.trim();
 
-      // Get tax data from AddressInput ref if it exists
-      // Try MLS ref first, then fallback to Descriptions ref
-      const taxData = addressInputMLSRef.current?.getTaxData?.() || addressInputDescRef.current?.getTaxData?.();
+      // Get tax data from Descriptions AddressInput ref
+      const taxData = addressInputDescRef.current?.getTaxData?.();
       console.log("[handleGenerateMLS] Tax data:", taxData);
 
-      // Determine which photos to use
-      // If we have fresh uploads, use those; otherwise use existing URLs
-      const photosToUse = photosMLS.length > 0 ? photosMLS : [];
-      const existingUrls = photoUrlsMLS.length > 0 ? photoUrlsMLS : photoUrlsDesc;
+      // Use photos from Descriptions tab
+      // If we have uploaded URLs, use those; otherwise upload fresh photos
+      const photosToUse = photoUrlsDesc.length === 0 ? photosDesc : [];
+      const existingUrls = photoUrlsDesc.length > 0 ? photoUrlsDesc : [];
 
       // Upload photos to Supabase Storage first, then send URLs to Claude
-      // This bypasses Vercel's 4.5MB payload limit
       const { mlsData: result, photoUrls } = await generateMLSDataWithStorage(
         photosToUse,
         addressString,
         user.id,
         "claude",
         (message) => toast.loading(message, { id: "mls-generating" }),
-        taxData, // Pass tax data to backend
-        existingUrls // Pass existing URLs for regeneration case
+        taxData,
+        existingUrls
       );
 
       setMlsData(result);
-      // Save the uploaded photo URLs for database storage
-      if (photoUrls.length > 0) {
-        setPhotoUrlsMLS(photoUrls);
-        console.log("[handleGenerateMLS] Saved photo URLs:", photoUrls);
+      // Update photo URLs if new ones were uploaded
+      if (photoUrls.length > 0 && photoUrlsDesc.length === 0) {
+        setPhotoUrlsDesc(photoUrls);
+        console.log("[handleGenerateMLS] Saved photo URLs to Descriptions state:", photoUrls);
       }
       toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
     } catch (error) {
@@ -2083,19 +2073,16 @@ export default function GeneratePage() {
           </div>
         ) : (
           /* =============================================================== */
-          /* MLS DATA TAB                                                    */
+          /* MLS DATA TAB - Always uses data from Descriptions tab           */
           /* =============================================================== */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left Sidebar - Photos & Address for MLS */}
+            {/* Left Sidebar - Property Info from Descriptions */}
             <aside className="lg:col-span-4 space-y-6 relative z-10">
               <div className="sticky top-40">
                 {/* Card wrapper for sidebar content */}
                 <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                  {/* Show simplified sidebar when:
-                      1. MLS data exists and came from Descriptions tab, OR
-                      2. No MLS-specific photos uploaded but Descriptions tab has photos ready */}
-                  {(mlsData && photosMLS.length === 0 && photoUrlsMLS.length > 0) ||
-                   (photosMLS.length === 0 && photoUrlsDesc.length > 0 && addressDesc?.street) ? (
+                  {/* Check if Descriptions tab has the required data */}
+                  {(photoUrlsDesc.length > 0 || photosDesc.length > 0) && addressDesc?.street ? (
                     <>
                       {/* Info Banner */}
                       {mlsData ? (
@@ -2106,7 +2093,7 @@ export default function GeneratePage() {
                           <div className="flex-1">
                             <span className="font-medium">MLS Data Extracted</span>
                             <p className="text-xs opacity-70 mt-0.5">
-                              Using {photoUrlsMLS.length || photoUrlsDesc.length} photos from Descriptions tab
+                              Using {photoUrlsDesc.length || photosDesc.length} photos
                             </p>
                           </div>
                         </div>
@@ -2116,23 +2103,21 @@ export default function GeneratePage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
                           </svg>
                           <div className="flex-1">
-                            <span className="font-medium">Using Descriptions Data</span>
+                            <span className="font-medium">Ready to Extract</span>
                             <p className="text-xs opacity-70 mt-0.5">
-                              {photoUrlsDesc.length} photos ready from Descriptions tab
+                              {photoUrlsDesc.length || photosDesc.length} photos from Descriptions tab
                             </p>
                           </div>
                         </div>
                       )}
 
                       {/* Address Summary */}
-                      {(addressMLS || addressDesc) && (
-                        <div className="bg-base-200/50 rounded-xl p-4">
-                          <p className="text-sm font-medium text-base-content/80">Property Address</p>
-                          <p className="text-base-content mt-1">
-                            {(addressMLS || addressDesc).street}, {(addressMLS || addressDesc).city}, {(addressMLS || addressDesc).state} {(addressMLS || addressDesc).zip_code}
-                          </p>
-                        </div>
-                      )}
+                      <div className="bg-base-200/50 rounded-xl p-4">
+                        <p className="text-sm font-medium text-base-content/80">Property Address</p>
+                        <p className="text-base-content mt-1">
+                          {addressDesc.street}, {addressDesc.city}, {addressDesc.state} {addressDesc.zip_code}
+                        </p>
+                      </div>
 
                       {/* Generate/Regenerate MLS Button */}
                       <button
@@ -2159,180 +2144,43 @@ export default function GeneratePage() {
                         )}
                       </button>
 
-                      {/* Clear Button - to start fresh on MLS tab */}
-                      <button
-                        onClick={handleClearMLSData}
-                        className="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-error"
-                      >
-                        Clear & upload different photos
-                      </button>
+                      {/* Clear MLS Data Button */}
+                      {mlsData && (
+                        <button
+                          onClick={() => {
+                            setMlsData(null);
+                            setMlsDataEditable(null);
+                            toast.success("MLS data cleared");
+                          }}
+                          className="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-error"
+                        >
+                          Clear MLS data
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
-                      {/* Standard MLS Tab View - Photo Upload & Address */}
-                      {/* Listing Loader & Clear Button */}
-                      <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
+                      {/* Empty State - No data from Descriptions tab */}
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 rounded-2xl bg-base-200 flex items-center justify-center mx-auto mb-4">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-8 h-8 text-base-content/30">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                          </svg>
+                        </div>
+                        <h3 className="font-semibold text-base-content mb-2">No Property Data</h3>
+                        <p className="text-sm text-base-content/60 mb-4">
+                          Upload photos and enter an address on the Descriptions tab first.
+                        </p>
                         <button
-                          onClick={handleClearMLSData}
-                          disabled={isGeneratingMLS || !hasMLSDataToClear}
-                          className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
-                          title="Clear all data and start fresh"
+                          onClick={() => setActiveTab("descriptions")}
+                          className="btn btn-primary btn-sm gap-2"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                           </svg>
-                          Clear
+                          Go to Descriptions
                         </button>
-                        <ListingLoader
-                          listingType="mls_data"
-                          userId={user?.id}
-                          onSelectListing={handleLoadMLSListing}
-                          disabled={isGeneratingMLS}
-                        />
                       </div>
-
-                      <PhotoUploader
-                        ref={photoUploaderMLSRef}
-                        onPhotosChange={handlePhotosChangeMLS}
-                        disabled={isGeneratingMLS}
-                      />
-
-                  {/* Photo Compliance Scanner for MLS */}
-                  {photosMLS.length > 0 && (
-                    <div className="border-t border-base-200 pt-4 space-y-3">
-                      {/* Scan Button */}
-                      {!complianceReportMLS && !scanningComplianceMLS && (
-                        <button
-                          onClick={handleScanComplianceMLS}
-                          className="btn btn-outline btn-sm w-full gap-2"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                          </svg>
-                          Scan for Compliance Issues
-                        </button>
-                      )}
-
-                      {/* Scanning Progress */}
-                      {scanningComplianceMLS && (
-                        <div className="alert alert-info">
-                          <span className="loading loading-spinner loading-sm"></span>
-                          <span>Scanning {photosMLS.length} photos for compliance issues...</span>
-                        </div>
-                      )}
-
-                      {/* Compliance Results */}
-                      {complianceReportMLS && !scanningComplianceMLS && (
-                        <div className="space-y-3">
-                          {complianceReportMLS.hasViolations ? (
-                            <>
-                              <div className="alert alert-warning">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                                </svg>
-                                <span>{complianceReportMLS.violations.length} photo(s) have potential issues</span>
-                              </div>
-
-                              {/* Violation List */}
-                              <div className="space-y-2">
-                                {complianceReportMLS.violations.map((v) => (
-                                  <div key={v.photoIndex} className="flex items-start gap-3 p-3 bg-warning/10 rounded-lg border border-warning/20">
-                                    {/* Photo Thumbnail */}
-                                    <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0 bg-base-200">
-                                      <img
-                                        src={photosMLS[v.photoIndex]?.preview || photosMLS[v.photoIndex]}
-                                        alt={v.photoName}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    </div>
-                                    {/* Issue Details */}
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium text-base-content">{v.photoName}</p>
-                                      <ul className="text-xs text-warning-content/70 mt-1 space-y-0.5">
-                                        {v.issues.map((issue, idx) => (
-                                          <li key={idx}>• {issue}</li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                    {/* Remove Button */}
-                                    <button
-                                      onClick={() => handleRemovePhotoMLS(v.photoIndex)}
-                                      className="btn btn-ghost btn-xs text-error"
-                                      title="Remove photo"
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-
-                              {/* Rescan Button */}
-                              <button
-                                onClick={handleScanComplianceMLS}
-                                className="btn btn-ghost btn-xs w-full"
-                              >
-                                Scan Again
-                              </button>
-                            </>
-                          ) : (
-                            <div className="alert alert-success">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              <span>All {complianceReportMLS.totalPhotos} photos are compliant!</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="border-t border-base-200 pt-6">
-                    <AddressInput
-                      ref={addressInputMLSRef}
-                      onAddressChange={handleAddressChangeMLS}
-                      disabled={isGeneratingMLS}
-                      hideTaxFields={true}
-                      autoFetchTaxRecords={true}
-                    />
-                  </div>
-
-                  {/* Generate MLS Data Button */}
-                  <div className="border-t border-base-200 pt-6 space-y-3">
-                    <button
-                      onClick={handleGenerateMLS}
-                      disabled={isGeneratingMLS || !isFormReadyMLS}
-                      className="btn btn-primary w-full gap-2"
-                    >
-                      {isGeneratingMLS ? (
-                        <>
-                          <span className="loading loading-spinner loading-sm"></span>
-                          <span className="text-sm">Extracting MLS Data...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
-                          </svg>
-                          Generate MLS Data
-                        </>
-                      )}
-                    </button>
-
-                    {!isFormReadyMLS && (
-                      <p className="text-xs text-base-content/40 text-center">
-                        Upload photos and enter address first
-                      </p>
-                    )}
-
-                    {!user && isFormReadyMLS && (
-                      <p className="text-xs text-warning text-center">
-                        Please log in to generate MLS data
-                      </p>
-                    )}
-                  </div>
                     </>
                   )}
                 </div>

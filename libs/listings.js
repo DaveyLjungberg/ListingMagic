@@ -74,16 +74,16 @@ export async function updateListing(id, updateData) {
 
 /**
  * Get listings via API with optional filtering
+ * Note: user_id filtering is handled server-side via authentication
  * @param {Object} options - Filter options
  * @param {string} options.listing_type - Filter by 'descriptions' or 'mls_data'
- * @param {string} options.user_id - Filter by user ID
  * @param {number} options.limit - Max number of results (default 20)
  */
 export async function getListings(options = {}) {
   try {
     const params = new URLSearchParams();
     if (options.listing_type) params.set("listing_type", options.listing_type);
-    if (options.user_id) params.set("user_id", options.user_id);
+    // user_id is now handled server-side via authentication - no need to pass it
     if (options.limit) params.set("limit", options.limit.toString());
 
     const url = `/api/listings${params.toString() ? `?${params.toString()}` : ""}`;

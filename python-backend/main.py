@@ -43,6 +43,7 @@ from endpoints.mls_data import router as mls_router
 from endpoints.video_generation import router as video_router
 from endpoints.refine_content import router as refine_router
 from endpoints.photo_categorization import router as photo_categorization_router
+from compliance import check_fair_housing_compliance
 
 # Configure logging
 logging.basicConfig(
@@ -248,6 +249,26 @@ async def generate_public_remarks(
             highlight_features=request.highlight_features
         )
 
+        # Fair Housing compliance check on generated content
+        compliance_result = check_fair_housing_compliance(response.text)
+        if not compliance_result.is_compliant:
+            logger.warning(f"Public remarks failed Fair Housing compliance: {compliance_result.violations}")
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "compliance_violation",
+                    "message": "Generated content contains Fair Housing violations. Please try again.",
+                    "violations": [
+                        {
+                            "category": v.category,
+                            "matches": v.matches,
+                            "suggestion": v.suggestion
+                        }
+                        for v in compliance_result.violations
+                    ]
+                }
+            )
+
         # Track cost
         cost_tracker = get_cost_tracker()
         cost_tracker.record_usage(
@@ -261,6 +282,8 @@ async def generate_public_remarks(
 
         return response
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (including compliance violations)
     except Exception as e:
         logger.error(f"Error generating public remarks: {e}")
 
@@ -316,6 +339,26 @@ async def generate_walkthru_script(
             public_remarks=request.public_remarks
         )
 
+        # Fair Housing compliance check on generated content
+        compliance_result = check_fair_housing_compliance(response.script)
+        if not compliance_result.is_compliant:
+            logger.warning(f"Walk-thru script failed Fair Housing compliance: {compliance_result.violations}")
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "compliance_violation",
+                    "message": "Generated script contains Fair Housing violations. Please try again.",
+                    "violations": [
+                        {
+                            "category": v.category,
+                            "matches": v.matches,
+                            "suggestion": v.suggestion
+                        }
+                        for v in compliance_result.violations
+                    ]
+                }
+            )
+
         # Track cost
         cost_tracker = get_cost_tracker()
         cost_tracker.record_usage(
@@ -329,6 +372,8 @@ async def generate_walkthru_script(
 
         return response
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (including compliance violations)
     except Exception as e:
         logger.error(f"Error generating walk-thru script: {e}")
 
@@ -382,6 +427,32 @@ async def generate_features(
             max_features=request.max_features
         )
 
+        # Fair Housing compliance check on generated content
+        # Check all features combined
+        all_features_text = " ".join(response.features_list or [])
+        if response.categorized_features:
+            for category in response.categorized_features:
+                all_features_text += " " + " ".join(category.features or [])
+
+        compliance_result = check_fair_housing_compliance(all_features_text)
+        if not compliance_result.is_compliant:
+            logger.warning(f"Features failed Fair Housing compliance: {compliance_result.violations}")
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "compliance_violation",
+                    "message": "Generated features contain Fair Housing violations. Please try again.",
+                    "violations": [
+                        {
+                            "category": v.category,
+                            "matches": v.matches,
+                            "suggestion": v.suggestion
+                        }
+                        for v in compliance_result.violations
+                    ]
+                }
+            )
+
         # Track cost
         cost_tracker = get_cost_tracker()
         cost_tracker.record_usage(
@@ -395,6 +466,8 @@ async def generate_features(
 
         return response
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (including compliance violations)
     except Exception as e:
         logger.error(f"Error generating features: {e}")
 

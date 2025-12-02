@@ -2,30 +2,55 @@
  * Listings API Route
  *
  * Handles saving and retrieving listings from Supabase.
+ *
+ * SECURITY: All operations validate user authentication server-side.
+ * - POST: Creates listing owned by authenticated user
+ * - PATCH: Only allows updates to user's own listings
+ * - GET: Only returns user's own listings (enforced server-side)
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-// Create Supabase admin client on demand (not at import time)
-function getSupabaseAdmin() {
+// Create authenticated Supabase client that respects RLS
+async function getSupabaseClient() {
+  const cookieStore = await cookies();
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
     throw new Error("Missing Supabase environment variables");
   }
 
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
+  return createServerClient(url, key, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set(name: string, value: string, options: Record<string, unknown>) {
+        cookieStore.set({ name, value, ...options });
+      },
+      remove(name: string, options: Record<string, unknown>) {
+        cookieStore.set({ name, value: "", ...options });
+      },
     },
   });
 }
 
+// Helper to get authenticated user or return error response
+async function getAuthenticatedUser(supabase: Awaited<ReturnType<typeof getSupabaseClient>>) {
+  const { data: { user }, error } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return { user: null, error: "Unauthorized - please log in" };
+  }
+
+  return { user, error: null };
+}
+
 interface ListingData {
-  user_id: string | null;
   listing_type: "descriptions" | "mls_data";
   property_address: string;
   address_json?: {
@@ -48,6 +73,17 @@ interface ListingData {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await getSupabaseClient();
+
+    // Get authenticated user server-side (don't trust client)
+    const { user, error: authError } = await getAuthenticatedUser(supabase);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: authError },
+        { status: 401 }
+      );
+    }
+
     const body: ListingData = await request.json();
 
     // Validate required fields
@@ -58,12 +94,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabaseAdmin = getSupabaseAdmin();
-
-    const { data, error } = await supabaseAdmin
+    // Insert with authenticated user's ID (server-validated, not client-provided)
+    const { data, error } = await supabase
       .from("listings")
       .insert({
-        user_id: body.user_id,
+        user_id: user.id, // Use server-validated user ID
         listing_type: body.listing_type || "descriptions",
         property_address: body.property_address,
         address_json: body.address_json || null,
@@ -105,6 +140,17 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const supabase = await getSupabaseClient();
+
+    // Get authenticated user server-side
+    const { user, error: authError } = await getAuthenticatedUser(supabase);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: authError },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -115,22 +161,29 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const supabaseAdmin = getSupabaseAdmin();
-
     // Add updated_at timestamp
     const dataToUpdate = {
       ...updateData,
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabaseAdmin
+    // Update only if the listing belongs to this user (ownership check)
+    const { data, error } = await supabase
       .from("listings")
       .update(dataToUpdate)
       .eq("id", id)
+      .eq("user_id", user.id) // SECURITY: Only update own listings
       .select("id")
       .single();
 
     if (error) {
+      // Check if it's a "no rows returned" error (user doesn't own this listing)
+      if (error.code === "PGRST116") {
+        return NextResponse.json(
+          { success: false, error: "Listing not found or access denied" },
+          { status: 404 }
+        );
+      }
       console.error("Error updating listing:", error);
       return NextResponse.json(
         { success: false, error: error.message },
@@ -153,26 +206,33 @@ export async function PATCH(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabaseAdmin = getSupabaseAdmin();
+    const supabase = await getSupabaseClient();
+
+    // Get authenticated user server-side
+    const { user, error: authError } = await getAuthenticatedUser(supabase);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: authError, data: [] },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const listingType = searchParams.get("listing_type");
-    const userId = searchParams.get("user_id");
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
-    let query = supabaseAdmin
+    // SECURITY: Always filter by authenticated user's ID (server-validated)
+    // Don't accept user_id from query params - that's a security vulnerability
+    let query = supabase
       .from("listings")
       .select("*")
+      .eq("user_id", user.id) // Always filter to own listings
       .order("created_at", { ascending: false })
       .limit(limit);
 
     // Filter by listing_type if provided
     if (listingType) {
       query = query.eq("listing_type", listingType);
-    }
-
-    // Filter by user_id if provided
-    if (userId) {
-      query = query.eq("user_id", userId);
     }
 
     const { data, error } = await query;

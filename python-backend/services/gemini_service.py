@@ -169,8 +169,8 @@ class GeminiService:
         return {}
 
     @retry(
-        stop=stop_after_attempt(5),  # Increased attempts for rate limits
-        wait=wait_exponential(multiplier=2, min=4, max=60),  # Increased backoff
+        stop=stop_after_attempt(4),  # Reduced to fit within frontend timeout
+        wait=wait_exponential(multiplier=2, min=2, max=30),  # Max 30s wait
         retry=retry_if_exception_type((GeminiServiceError, ConnectionError, ResourceExhausted))
     )
     async def generate_features(
@@ -317,8 +317,8 @@ class GeminiService:
             raise GeminiServiceError(f"Failed to generate features: {str(e)}")
 
     @retry(
-        stop=stop_after_attempt(5),  # Increased attempts for rate limits
-        wait=wait_exponential(multiplier=2, min=4, max=60),  # Increased backoff
+        stop=stop_after_attempt(4),  # Reduced to fit within frontend timeout
+        wait=wait_exponential(multiplier=2, min=2, max=30),  # Max 30s wait
         retry=retry_if_exception_type((GeminiServiceError, ConnectionError, ResourceExhausted))
     )
     async def generate_reso_data(

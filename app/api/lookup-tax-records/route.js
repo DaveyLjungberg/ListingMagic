@@ -80,8 +80,24 @@ export async function POST(request) {
     }
 
     // Parse successful response
-    const data = await response.json();
-    console.log("[ATTOM API] Response data:", JSON.stringify(data, null, 2));
+    let data;
+    try {
+      data = await response.json();
+      console.log("[ATTOM API] Response data:", JSON.stringify(data, null, 2));
+    } catch (parseError) {
+      console.error("[ATTOM API] Failed to parse JSON response:", parseError);
+      // Return partial success as requested
+      return NextResponse.json({
+        success: true,
+        data: {
+          yearBuilt: null,
+          lotSize: null,
+          apn: null,
+          county: null,
+          note: "Partial success: Tax API returned invalid JSON"
+        },
+      });
+    }
 
     // Extract property data (ATTOM returns array of properties)
     const property = data.property?.[0];

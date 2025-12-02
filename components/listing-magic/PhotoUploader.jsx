@@ -3,8 +3,7 @@
 import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { CameraIcon, XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
 
-const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => {
-  const [photos, setPhotos] = useState([]);
+const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, photos = [] }, ref) => {
   const [isDragging, setIsDragging] = useState(false);
 
   // Expose methods via ref
@@ -17,13 +16,15 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
           URL.revokeObjectURL(photo.preview);
         }
       });
-      setPhotos([]);
+      if (onPhotosChange) onPhotosChange([]);
     },
-    setPhotos: (newPhotos) => setPhotos(newPhotos),
+    setPhotos: (newPhotos) => {
+      if (onPhotosChange) onPhotosChange(newPhotos);
+    },
     // Load photos from URLs (for loading saved listings)
     setPhotosFromUrls: (urls) => {
       if (!urls || urls.length === 0) {
-        setPhotos([]);
+        if (onPhotosChange) onPhotosChange([]);
         return;
       }
       const photoObjects = urls.map((url, index) => ({
@@ -32,16 +33,9 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
         preview: url,
         file: null,
       }));
-      setPhotos(photoObjects);
+      if (onPhotosChange) onPhotosChange(photoObjects);
     }
   }));
-
-  // Notify parent of photo changes
-  useEffect(() => {
-    if (onPhotosChange) {
-      onPhotosChange(photos);
-    }
-  }, [photos, onPhotosChange]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -72,8 +66,10 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
       name: file.name
     }));
 
-    setPhotos(prev => [...prev, ...newPhotos]);
-  }, [disabled]);
+    if (onPhotosChange) {
+      onPhotosChange([...photos, ...newPhotos]);
+    }
+  }, [disabled, photos, onPhotosChange]);
 
   const handleFileSelect = useCallback((e) => {
     if (disabled) return;
@@ -89,31 +85,35 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false }, ref) => 
       name: file.name
     }));
 
-    setPhotos(prev => [...prev, ...newPhotos]);
-  }, [disabled]);
+    if (onPhotosChange) {
+      onPhotosChange([...photos, ...newPhotos]);
+    }
+  }, [disabled, photos, onPhotosChange]);
 
   const removePhoto = useCallback((id) => {
     if (disabled) return;
 
-    setPhotos(prev => {
-      // Find photo by id property or by index for URL strings
-      const photoIndex = prev.findIndex((p, idx) => {
-        if (typeof p === 'string') {
-          return `url-${idx}` === id;
-        }
-        return p.id === id;
-      });
-
-      if (photoIndex === -1) return prev;
-
-      const photo = prev[photoIndex];
-      // Only revoke blob URLs, not external URLs
-      if (typeof photo !== 'string' && photo?.preview && !photo.preview.startsWith("http")) {
-        URL.revokeObjectURL(photo.preview);
+    // Find photo by id property or by index for URL strings
+    const photoIndex = photos.findIndex((p, idx) => {
+      if (typeof p === 'string') {
+        return `url-${idx}` === id;
       }
-      return prev.filter((_, idx) => idx !== photoIndex);
+      return p.id === id;
     });
-  }, [disabled]);
+
+    if (photoIndex === -1) return;
+
+    const photo = photos[photoIndex];
+    // Only revoke blob URLs, not external URLs
+    if (typeof photo !== 'string' && photo?.preview && !photo.preview.startsWith("http")) {
+      URL.revokeObjectURL(photo.preview);
+    }
+
+    const newPhotos = photos.filter((_, idx) => idx !== photoIndex);
+    if (onPhotosChange) {
+      onPhotosChange(newPhotos);
+    }
+  }, [disabled, photos, onPhotosChange]);
 
   return (
     <div className={`space-y-4 ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>

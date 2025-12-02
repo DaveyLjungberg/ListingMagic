@@ -29,6 +29,8 @@ import { saveListing, updateListing } from "@/libs/listings";
 import { scanPhotoCompliance } from "@/libs/photoCompliance";
 import { VOICE_OPTIONS } from "@/config/elevenlabs";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useWakeLock } from "@/hooks/useWakeLock";
+import GenerationProgress from "@/components/GenerationProgress";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -106,6 +108,14 @@ export default function GeneratePage() {
   const [isRefiningFeatures, setIsRefiningFeatures] = useState(false);
   const [featuresComplianceError, setFeaturesComplianceError] = useState(null);
 
+  // =========================================================================
+  // WAKE LOCK & PROGRESS STATE (prevents tab suspension during generation)
+  // =========================================================================
+  const { isSupported: isWakeLockSupported, isActive: isWakeLockActive, requestWakeLock, releaseWakeLock } = useWakeLock();
+  const [generationStartTime, setGenerationStartTime] = useState(null);
+  const [currentOperationLabel, setCurrentOperationLabel] = useState("");
+  const heartbeatIntervalRef = useRef(null);
+
   // Use voice options from config (aliased for backwards compatibility with template)
   const voiceOptions = VOICE_OPTIONS;
 
@@ -123,6 +133,74 @@ export default function GeneratePage() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Request notification permission on mount (for alerting when generation completes in background)
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      // Delay the request slightly to avoid blocking initial render
+      const timer = setTimeout(() => {
+        Notification.requestPermission().then((permission) => {
+          console.log("[Notifications] Permission:", permission);
+        });
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Helper to send notification when generation completes (if tab was backgrounded)
+  const sendCompletionNotification = useCallback((message = "Your property content is ready!") => {
+    if (
+      document.hidden &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      new Notification("Listing Magic", {
+        body: message,
+        icon: "/icon.png",
+        tag: "generation-complete",
+      });
+    }
+  }, []);
+
+  // Helper to get estimated time remaining based on current step
+  const getEstimatedTimeRemaining = useCallback((currentStep, totalSteps) => {
+    const avgSecondsPerStep = 45; // Average time per generation step
+    const remaining = (totalSteps - currentStep) * avgSecondsPerStep;
+    if (remaining <= 0) return null;
+    const minutes = Math.floor(remaining / 60);
+    const seconds = remaining % 60;
+    return minutes > 0
+      ? `~${minutes}m ${seconds}s remaining`
+      : `~${seconds}s remaining`;
+  }, []);
+
+  // Start heartbeat for browsers without wake lock support
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) return; // Already running
+    console.log("[Heartbeat] Starting fallback heartbeat...");
+    heartbeatIntervalRef.current = setInterval(() => {
+      // Simple fetch to keep the tab active
+      fetch("/api/health", { method: "HEAD" }).catch(() => {});
+    }, 30000); // Every 30 seconds
+  }, []);
+
+  // Stop heartbeat
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) {
+      console.log("[Heartbeat] Stopping fallback heartbeat");
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  }, []);
+
+  // Cleanup heartbeat on unmount
+  useEffect(() => {
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+    };
   }, []);
 
   // Auto-save descriptions listing when generation completes
@@ -406,10 +484,22 @@ export default function GeneratePage() {
       return;
     }
 
+    console.log("[Generation] Started, requesting wake lock...");
     setIsGeneratingDesc(true);
+    setGenerationStartTime(Date.now());
+    setCurrentOperationLabel("Initializing...");
     let successCount = 0;
     let rateLimitHit = false;
     const totalSteps = 4; // Public Remarks, Walk-thru, Features, MLS Data
+
+    // Request wake lock to prevent tab suspension
+    const wakeLockAcquired = await requestWakeLock();
+    console.log("[WakeLock] Acquired:", !!wakeLockAcquired);
+
+    // Start heartbeat fallback if wake lock not supported/acquired
+    if (!wakeLockAcquired && !isWakeLockActive) {
+      startHeartbeat();
+    }
 
     // Reset all states
     setGenerationState({
@@ -424,6 +514,7 @@ export default function GeneratePage() {
     try {
       // Step 0: Upload photos to Supabase Storage (for saving later)
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Uploading photos..." });
+      setCurrentOperationLabel("Uploading photos to storage...");
       toast.loading("Uploading photos...", { id: "generating-desc" });
 
       // Track URLs for intelligent photo selection
@@ -451,6 +542,7 @@ export default function GeneratePage() {
 
       // Convert photos to base64 for API calls (with intelligent selection if > 20 photos)
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Preparing photos..." });
+      setCurrentOperationLabel("Preparing photos for AI analysis...");
       toast.loading("Preparing photos...", { id: "generating-desc" });
       const imageInputs = await convertPhotosToImageInputs(photosDesc, currentPhotoUrls);
 
@@ -462,7 +554,9 @@ export default function GeneratePage() {
       };
 
       // STEP 1: Public Remarks (GPT-4.1)
+      console.log("[Generation] Step 1/4: Public Remarks");
       setGenerationProgressDesc({ step: 1, total: totalSteps, label: "Generating public remarks..." });
+      setCurrentOperationLabel("Analyzing photos and generating public remarks with GPT-4.1...");
       toast.loading(`Generating public remarks... (1/${totalSteps})`, { id: "generating-desc" });
       setGenerationState(prev => ({
         ...prev,
@@ -489,7 +583,9 @@ export default function GeneratePage() {
 
       // STEP 2: Walk-thru Script (Claude) - only if no rate limit
       if (!rateLimitHit) {
+        console.log("[Generation] Step 2/4: Walk-thru Script");
         setGenerationProgressDesc({ step: 2, total: totalSteps, label: "Generating walk-thru script..." });
+        setCurrentOperationLabel("Creating walk-through video script with Claude...");
         toast.loading(`Generating walk-thru script... (2/${totalSteps})`, { id: "generating-desc" });
         setGenerationState(prev => ({
           ...prev,
@@ -517,7 +613,9 @@ export default function GeneratePage() {
 
       // STEP 3: Features (Gemini - fast & cheap) - only if no rate limit
       if (!rateLimitHit) {
+        console.log("[Generation] Step 3/4: Features");
         setGenerationProgressDesc({ step: 3, total: totalSteps, label: "Generating features..." });
+        setCurrentOperationLabel("Extracting property features with Gemini...");
         toast.loading(`Generating features... (3/${totalSteps})`, { id: "generating-desc" });
         setGenerationState(prev => ({
           ...prev,
@@ -545,7 +643,9 @@ export default function GeneratePage() {
 
       // STEP 4: MLS Data (Claude) - only if no rate limit
       if (!rateLimitHit) {
+        console.log("[Generation] Step 4/4: MLS Data");
         setGenerationProgressDesc({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
+        setCurrentOperationLabel("Generating RESO-formatted MLS data with Claude...");
         toast.loading(`Extracting MLS data... (4/${totalSteps})`, { id: "generating-desc" });
 
         try {
@@ -586,13 +686,15 @@ export default function GeneratePage() {
         }
       }
 
-      // Show appropriate toast
+      // Show appropriate toast and send notification if tab was backgrounded
       if (rateLimitHit) {
         toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating-desc" });
       } else if (successCount === totalSteps) {
         toast.success("All content generated successfully!", { id: "generating-desc" });
+        sendCompletionNotification("All property content generated successfully!");
       } else if (successCount > 0) {
         toast.success(`Generated ${successCount}/${totalSteps} sections`, { id: "generating-desc" });
+        sendCompletionNotification(`Generated ${successCount}/${totalSteps} sections`);
       } else {
         toast.error("Failed to generate content", { id: "generating-desc" });
       }
@@ -601,8 +703,16 @@ export default function GeneratePage() {
       const friendlyError = getFriendlyErrorMessage(error);
       toast.error(friendlyError, { id: "generating-desc" });
     } finally {
+      console.log("[Generation] Complete, releasing wake lock");
+      // Release wake lock
+      await releaseWakeLock();
+      // Stop heartbeat fallback
+      stopHeartbeat();
+      // Reset state
       setIsGeneratingDesc(false);
       setGenerationProgressDesc({ step: 0, total: totalSteps, label: "" });
+      setGenerationStartTime(null);
+      setCurrentOperationLabel("");
     }
   };
 
@@ -883,7 +993,20 @@ export default function GeneratePage() {
       return;
     }
 
+    console.log("[MLS Generation] Started, requesting wake lock...");
     setIsGeneratingMLS(true);
+    setGenerationStartTime(Date.now());
+    setCurrentOperationLabel("Generating MLS data from photos...");
+    setGenerationProgressDesc({ step: 1, total: 1, label: "Extracting MLS data..." });
+
+    // Request wake lock to prevent tab suspension
+    const wakeLockAcquired = await requestWakeLock();
+    console.log("[WakeLock] Acquired for MLS:", !!wakeLockAcquired);
+
+    // Start heartbeat fallback if wake lock not supported/acquired
+    if (!wakeLockAcquired && !isWakeLockActive) {
+      startHeartbeat();
+    }
 
     try {
       // Format address string from Descriptions tab
@@ -904,7 +1027,10 @@ export default function GeneratePage() {
         addressString,
         user.id,
         "claude",
-        (message) => toast.loading(message, { id: "mls-generating" }),
+        (message) => {
+          setCurrentOperationLabel(message);
+          toast.loading(message, { id: "mls-generating" });
+        },
         taxData,
         existingUrls
       );
@@ -916,11 +1042,18 @@ export default function GeneratePage() {
         console.log("[handleGenerateMLS] Saved photo URLs to Descriptions state:", photoUrls);
       }
       toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
+      sendCompletionNotification("MLS data extraction complete!");
     } catch (error) {
       console.error("MLS generation error:", error);
       toast.error(getFriendlyErrorMessage(error), { id: "mls-generating" });
     } finally {
+      console.log("[MLS Generation] Complete, releasing wake lock");
+      await releaseWakeLock();
+      stopHeartbeat();
       setIsGeneratingMLS(false);
+      setGenerationStartTime(null);
+      setCurrentOperationLabel("");
+      setGenerationProgressDesc({ step: 0, total: 1, label: "" });
     }
   };
 
@@ -932,6 +1065,18 @@ export default function GeneratePage() {
     if (!currentListingIdDesc) {
       toast.error("Please generate content first");
       return;
+    }
+
+    console.log("[Regenerate] Public Remarks - requesting wake lock...");
+    setIsGeneratingDesc(true);
+    setGenerationStartTime(Date.now());
+    setCurrentOperationLabel("Regenerating public remarks...");
+    setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating public remarks..." });
+
+    // Request wake lock
+    const wakeLockAcquired = await requestWakeLock();
+    if (!wakeLockAcquired && !isWakeLockActive) {
+      startHeartbeat();
     }
 
     setGenerationState(prev => ({
@@ -964,6 +1109,7 @@ export default function GeneratePage() {
 
       if (updateResult.success) {
         toast.success("Public Remarks regenerated and saved");
+        sendCompletionNotification("Public Remarks regenerated!");
       } else {
         toast.error("Regenerated but failed to save");
       }
@@ -974,6 +1120,14 @@ export default function GeneratePage() {
         publicRemarks: { status: "error", data: null, error: friendlyError },
       }));
       toast.error(friendlyError);
+    } finally {
+      console.log("[Regenerate] Public Remarks complete, releasing wake lock");
+      await releaseWakeLock();
+      stopHeartbeat();
+      setIsGeneratingDesc(false);
+      setGenerationStartTime(null);
+      setCurrentOperationLabel("");
+      setGenerationProgressDesc({ step: 0, total: 1, label: "" });
     }
   };
 
@@ -981,6 +1135,18 @@ export default function GeneratePage() {
     if (!currentListingIdDesc) {
       toast.error("Please generate content first");
       return;
+    }
+
+    console.log("[Regenerate] Walk-thru Script - requesting wake lock...");
+    setIsGeneratingDesc(true);
+    setGenerationStartTime(Date.now());
+    setCurrentOperationLabel("Regenerating walk-thru script...");
+    setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating walk-thru script..." });
+
+    // Request wake lock
+    const wakeLockAcquired = await requestWakeLock();
+    if (!wakeLockAcquired && !isWakeLockActive) {
+      startHeartbeat();
     }
 
     setGenerationState(prev => ({
@@ -1014,6 +1180,7 @@ export default function GeneratePage() {
 
       if (updateResult.success) {
         toast.success("Walk-thru Script regenerated and saved");
+        sendCompletionNotification("Walk-thru Script regenerated!");
       } else {
         toast.error("Regenerated but failed to save");
       }
@@ -1024,6 +1191,14 @@ export default function GeneratePage() {
         walkthruScript: { status: "error", data: null, error: friendlyError },
       }));
       toast.error(friendlyError);
+    } finally {
+      console.log("[Regenerate] Walk-thru Script complete, releasing wake lock");
+      await releaseWakeLock();
+      stopHeartbeat();
+      setIsGeneratingDesc(false);
+      setGenerationStartTime(null);
+      setCurrentOperationLabel("");
+      setGenerationProgressDesc({ step: 0, total: 1, label: "" });
     }
   };
 
@@ -1445,6 +1620,18 @@ export default function GeneratePage() {
       return;
     }
 
+    console.log("[Regenerate] Features - requesting wake lock...");
+    setIsGeneratingDesc(true);
+    setGenerationStartTime(Date.now());
+    setCurrentOperationLabel("Regenerating features...");
+    setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating features..." });
+
+    // Request wake lock
+    const wakeLockAcquired = await requestWakeLock();
+    if (!wakeLockAcquired && !isWakeLockActive) {
+      startHeartbeat();
+    }
+
     setGenerationState(prev => ({
       ...prev,
       features: { status: "loading", data: null, error: null },
@@ -1474,6 +1661,7 @@ export default function GeneratePage() {
 
       if (updateResult.success) {
         toast.success("Features Sheet regenerated and saved");
+        sendCompletionNotification("Features Sheet regenerated!");
       } else {
         toast.error("Regenerated but failed to save");
       }
@@ -1484,6 +1672,14 @@ export default function GeneratePage() {
         features: { status: "error", data: null, error: friendlyError },
       }));
       toast.error(friendlyError);
+    } finally {
+      console.log("[Regenerate] Features complete, releasing wake lock");
+      await releaseWakeLock();
+      stopHeartbeat();
+      setIsGeneratingDesc(false);
+      setGenerationStartTime(null);
+      setCurrentOperationLabel("");
+      setGenerationProgressDesc({ step: 0, total: 1, label: "" });
     }
   };
 
@@ -1566,8 +1762,28 @@ export default function GeneratePage() {
               </h1>
             </div>
 
-            {/* User Menu */}
-            <UserMenu user={user} />
+            {/* Wake Lock Status & User Menu */}
+            <div className="flex items-center gap-3">
+              {/* Wake Lock Status Indicator - only shows during generation */}
+              {(isGeneratingDesc || isGeneratingMLS) && isWakeLockActive && (
+                <div className="badge badge-success gap-1.5 badge-sm">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-3 h-3"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Tab Protected
+                </div>
+              )}
+              <UserMenu user={user} />
+            </div>
           </div>
         </div>
       </header>
@@ -1623,6 +1839,18 @@ export default function GeneratePage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Generation Progress Indicator - shows during all generation operations */}
+        {(isGeneratingDesc || isGeneratingMLS) && (
+          <GenerationProgress
+            currentStep={generationProgressDesc.step}
+            totalSteps={generationProgressDesc.total}
+            currentOperation={currentOperationLabel}
+            estimatedTimeRemaining={getEstimatedTimeRemaining(generationProgressDesc.step, generationProgressDesc.total)}
+            isWakeLockActive={isWakeLockActive}
+            startTime={generationStartTime}
+          />
+        )}
+
         {activeTab === "descriptions" ? (
           /* =============================================================== */
           /* PROPERTY DESCRIPTIONS TAB                                       */

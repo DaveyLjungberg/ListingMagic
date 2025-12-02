@@ -333,6 +333,135 @@ class OpenAIService:
             logger.error(f"Error generating public remarks: {e}")
             raise OpenAIServiceError(f"Failed to generate public remarks: {str(e)}")
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((OpenAIServiceError, ConnectionError))
+    )
+    async def generate_walkthru_script(
+        self,
+        property_details: PropertyDetailsRequest,
+        duration_seconds: int = 120,
+        style: str = "conversational",
+        include_intro: bool = True,
+        include_outro: bool = True,
+        public_remarks: Optional[str] = None
+    ) -> Any:  # Returning Any to avoid circular imports with WalkthruScriptResponse
+        """
+        Generate video walk-thru script using GPT-4.1 Vision (Fallback).
+        
+        Used when Claude is unavailable.
+        """
+        if not self.client:
+            raise OpenAIServiceError("OpenAI client not initialized - check API key")
+
+        from models.responses import WalkthruScriptResponse, UsageMetrics, AIProvider
+        from utils.prompt_templates import WALKTHRU_SCRIPT_SYSTEM, format_walkthru_prompt
+
+        start_time = time.time()
+        request_id = f"openai_fallback_{int(time.time() * 1000)}"
+
+        logger.info(
+            f"Generating walk-thru script with GPT-4.1 (Fallback). "
+            f"Target duration: {duration_seconds}s"
+        )
+
+        try:
+            # Build features list
+            features = []
+            if property_details.features:
+                features = property_details.features
+            if property_details.bedrooms:
+                features.append(f"{property_details.bedrooms} bedrooms")
+            if property_details.bathrooms:
+                features.append(f"{property_details.bathrooms} bathrooms")
+
+            # Format the prompt
+            prompt = format_walkthru_prompt(
+                address=property_details.address.full_address,
+                bedrooms=property_details.bedrooms,
+                bathrooms=property_details.bathrooms,
+                square_feet=property_details.square_feet,
+                features=features,
+                public_remarks=public_remarks,
+                duration_seconds=duration_seconds,
+                style=style
+            )
+
+            # Build message content
+            content = []
+
+            # Add images if available
+            if property_details.photos:
+                image_contents = self._prepare_images_for_vision(property_details.photos)
+                content.extend(image_contents)
+
+            # Add text prompt
+            content.append({
+                "type": "text",
+                "text": prompt
+            })
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": WALKTHRU_SCRIPT_SYSTEM},
+                    {"role": "user", "content": content}
+                ],
+                max_tokens=self.config.max_tokens,
+                temperature=0.7  # Slightly higher for creative writing
+            )
+
+            # Extract response
+            generated_script = response.choices[0].message.content.strip()
+            word_count = len(generated_script.split())
+            
+            # Simple estimation: 150 wpm = 2.5 wps
+            estimated_duration = int(word_count / 2.5)
+
+            # Parse sections (reuse logic if possible, or simple split)
+            # For fallback, we'll do a simple full script section if parsing is complex to duplicate
+            # But we can try to use the same markers if the prompt enforces them
+            sections = [{"name": "Full Script", "content": generated_script}]
+
+            # Calculate usage
+            usage_data = response.usage
+            input_tokens = usage_data.prompt_tokens if usage_data else 0
+            output_tokens = usage_data.completion_tokens if usage_data else 0
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            cost = self._calculate_cost(input_tokens, output_tokens)
+
+            usage = UsageMetrics(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+                cost_usd=cost,
+                generation_time_ms=elapsed_ms,
+                model_used=self.model,
+                provider=AIProvider.OPENAI,
+                is_fallback=True
+            )
+
+            logger.info(
+                f"Walk-thru script generated (Fallback). Words: {word_count}, "
+                f"Cost: ${usage.cost_usd:.4f}"
+            )
+
+            return WalkthruScriptResponse(
+                success=True,
+                script=generated_script,
+                word_count=word_count,
+                estimated_duration_seconds=estimated_duration,
+                sections=sections,
+                usage=usage,
+                request_id=request_id
+            )
+
+        except Exception as e:
+            logger.error(f"Error generating walk-thru script (Fallback): {e}")
+            raise OpenAIServiceError(f"Failed to generate walk-thru script: {str(e)}")
+
     async def health_check(self) -> Dict[str, Any]:
         """Check if OpenAI service is available."""
         status = "healthy" if self.api_key and self.client else "no_api_key"

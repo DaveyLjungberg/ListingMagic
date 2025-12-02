@@ -22,6 +22,7 @@ import time
 from typing import List, Optional, Dict, Any
 
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -168,9 +169,9 @@ class GeminiService:
         return {}
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((GeminiServiceError, ConnectionError))
+        stop=stop_after_attempt(5),  # Increased attempts for rate limits
+        wait=wait_exponential(multiplier=2, min=4, max=60),  # Increased backoff
+        retry=retry_if_exception_type((GeminiServiceError, ConnectionError, ResourceExhausted))
     )
     async def generate_features(
         self,
@@ -309,14 +310,16 @@ class GeminiService:
                 request_id=request_id
             )
 
+        except ResourceExhausted:
+            raise  # Re-raise for tenacity to handle with backoff
         except Exception as e:
             logger.error(f"Error generating features: {e}")
             raise GeminiServiceError(f"Failed to generate features: {str(e)}")
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((GeminiServiceError, ConnectionError))
+        stop=stop_after_attempt(5),  # Increased attempts for rate limits
+        wait=wait_exponential(multiplier=2, min=4, max=60),  # Increased backoff
+        retry=retry_if_exception_type((GeminiServiceError, ConnectionError, ResourceExhausted))
     )
     async def generate_reso_data(
         self,
@@ -456,6 +459,8 @@ class GeminiService:
                 request_id=request_id
             )
 
+        except ResourceExhausted:
+            raise  # Re-raise for tenacity to handle with backoff
         except Exception as e:
             logger.error(f"Error generating RESO data: {e}")
             raise GeminiServiceError(f"Failed to generate RESO data: {str(e)}")

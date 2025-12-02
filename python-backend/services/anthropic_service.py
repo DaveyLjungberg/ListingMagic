@@ -32,6 +32,7 @@ from models.responses import (
     UsageMetrics,
     AIProvider
 )
+from services.openai_service import get_openai_service, OpenAIServiceError
 from utils.prompt_templates import (
     WALKTHRU_SCRIPT_SYSTEM,
     format_walkthru_prompt
@@ -294,10 +295,39 @@ class AnthropicService:
 
         except anthropic.APIError as e:
             logger.error(f"Anthropic API error: {e}")
-            raise AnthropicServiceError(f"Claude API error: {str(e)}")
+            # Fallback to OpenAI
+            logger.warning("Anthropic API failed, attempting fallback to OpenAI...")
+            try:
+                openai_service = get_openai_service()
+                return await openai_service.generate_walkthru_script(
+                    property_details=property_details,
+                    duration_seconds=duration_seconds,
+                    style=style,
+                    include_intro=include_intro,
+                    include_outro=include_outro,
+                    public_remarks=public_remarks
+                )
+            except Exception as fallback_error:
+                logger.error(f"Fallback to OpenAI also failed: {fallback_error}")
+                raise AnthropicServiceError(f"Claude API error: {str(e)}. Fallback failed: {str(fallback_error)}")
+
         except Exception as e:
             logger.error(f"Error generating walk-thru script: {e}")
-            raise AnthropicServiceError(f"Failed to generate walk-thru script: {str(e)}")
+            # Fallback to OpenAI
+            logger.warning("Anthropic service failed, attempting fallback to OpenAI...")
+            try:
+                openai_service = get_openai_service()
+                return await openai_service.generate_walkthru_script(
+                    property_details=property_details,
+                    duration_seconds=duration_seconds,
+                    style=style,
+                    include_intro=include_intro,
+                    include_outro=include_outro,
+                    public_remarks=public_remarks
+                )
+            except Exception as fallback_error:
+                logger.error(f"Fallback to OpenAI also failed: {fallback_error}")
+                raise AnthropicServiceError(f"Failed to generate walk-thru script: {str(e)}. Fallback failed: {str(fallback_error)}")
 
     async def health_check(self) -> Dict[str, Any]:
         """Check if Anthropic service is available."""

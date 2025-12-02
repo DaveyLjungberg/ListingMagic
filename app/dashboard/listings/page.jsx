@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { supabase } from "@/libs/supabase";
+import { getListings } from "@/libs/listings";
 
 export default function ListingsPage() {
   const [listings, setListings] = useState([]);
@@ -12,25 +12,22 @@ export default function ListingsPage() {
   useEffect(() => {
     const fetchListings = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        // Use summary mode for optimized column selection
+        const result = await getListings({
+          limit: 50,
+          summary: true,
+        });
 
-        if (!user) {
-          setError("Please log in to view your listings");
-          setIsLoading(false);
+        if (!result.success) {
+          if (result.error?.includes("Unauthorized")) {
+            setError("Please log in to view your listings");
+          } else {
+            throw new Error(result.error);
+          }
           return;
         }
 
-        const { data, error: fetchError } = await supabase
-          .from("listings")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-
-        if (fetchError) {
-          throw fetchError;
-        }
-
-        setListings(data || []);
+        setListings(result.data || []);
       } catch (err) {
         console.error("Error fetching listings:", err);
         setError(err.message || "Failed to load listings");

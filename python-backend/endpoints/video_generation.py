@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import subprocess
+import shutil
 from typing import List, Optional, Dict, Any
 
 import httpx
@@ -18,6 +19,10 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Video Generation"])
+
+# Default ElevenLabs voice ID (Sarah - warm, engaging)
+# Can be overridden via environment variable
+DEFAULT_VOICE_ID = os.getenv("ELEVENLABS_DEFAULT_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 
 
 # =============================================================================
@@ -30,7 +35,7 @@ class VideoGenerationRequest(BaseModel):
     photo_urls: List[str] = Field(..., description="Public URLs to property photos")
     listing_id: str = Field(..., description="Listing ID for storage path")
     include_voiceover: bool = Field(default=True, description="Whether to include ElevenLabs voiceover")
-    voice_id: str = Field(default="21m00Tcm4TlvDq8ikWAM", description="ElevenLabs voice ID")
+    voice_id: str = Field(default=DEFAULT_VOICE_ID, description="ElevenLabs voice ID")
 
 
 class VoicePreviewRequest(BaseModel):
@@ -187,6 +192,9 @@ def create_video_from_photos_with_audio(
     audio_duration: float
 ) -> bool:
     """Create video with photos timed to audio using ffmpeg."""
+    concat_file = None
+    silent_video = None
+
     try:
         if not photo_paths:
             logger.error("No photos to create video from")
@@ -241,15 +249,23 @@ def create_video_from_photos_with_audio(
             logger.error(f"FFmpeg merge failed: {result.stderr}")
             return False
 
-        # Cleanup
-        os.unlink(concat_file)
-        os.unlink(silent_video)
-
         return True
 
     except Exception as e:
         logger.error(f"Video creation failed: {e}")
         return False
+    finally:
+        # Always cleanup temp files
+        if concat_file and os.path.exists(concat_file):
+            try:
+                os.unlink(concat_file)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup concat file: {e}")
+        if silent_video and os.path.exists(silent_video):
+            try:
+                os.unlink(silent_video)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup silent video: {e}")
 
 
 def create_silent_video(
@@ -258,6 +274,8 @@ def create_silent_video(
     seconds_per_photo: float = 5.0
 ) -> bool:
     """Create video without voiceover - fixed duration per photo."""
+    concat_file = None
+
     try:
         if not photo_paths:
             logger.error("No photos to create video from")
@@ -288,12 +306,18 @@ def create_silent_video(
             logger.error(f"FFmpeg silent video failed: {result.stderr}")
             return False
 
-        os.unlink(concat_file)
         return True
 
     except Exception as e:
         logger.error(f"Silent video creation failed: {e}")
         return False
+    finally:
+        # Always cleanup temp file
+        if concat_file and os.path.exists(concat_file):
+            try:
+                os.unlink(concat_file)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup concat file: {e}")
 
 
 def get_audio_duration(audio_path: str) -> float:
@@ -332,14 +356,16 @@ def get_video_duration(video_path: str) -> float:
 # ElevenLabs TTS
 # =============================================================================
 
-async def generate_voiceover(script: str, output_path: str, voice_id: str = "21m00Tcm4TlvDq8ikWAM") -> bool:
+async def generate_voiceover(script: str, output_path: str, voice_id: str = None) -> bool:
     """Generate voiceover using ElevenLabs API.
 
     Args:
         script: The script text to convert to speech
         output_path: Path to save the audio file
-        voice_id: ElevenLabs voice ID (default: Rachel)
+        voice_id: ElevenLabs voice ID (defaults to DEFAULT_VOICE_ID)
     """
+    if voice_id is None:
+        voice_id = DEFAULT_VOICE_ID
     api_key = os.environ.get("ELEVENLABS_API_KEY")
 
     if not api_key:
@@ -592,7 +618,6 @@ async def generate_walkthrough_video(request: VideoGenerationRequest) -> VideoGe
     finally:
         # Cleanup temp files
         try:
-            import shutil
             shutil.rmtree(temp_dir)
         except Exception as e:
             logger.warning(f"Failed to cleanup temp dir: {e}")

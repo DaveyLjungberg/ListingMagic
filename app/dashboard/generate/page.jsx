@@ -27,6 +27,7 @@ import {
 import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing, updateListing } from "@/libs/listings";
 import { scanPhotoCompliance } from "@/libs/photoCompliance";
+import { VOICE_OPTIONS } from "@/config/elevenlabs";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -104,53 +105,8 @@ export default function GeneratePage() {
   const [isRefiningFeatures, setIsRefiningFeatures] = useState(false);
   const [featuresComplianceError, setFeaturesComplianceError] = useState(null);
 
-  // Voice options with metadata - American voices only
-  const voiceOptions = [
-    // Female voices (American)
-    {
-      id: "EXAVITQu4vr4xnSDxMaL",
-      name: "Sarah",
-      gender: "Female",
-      age: "Young",
-      description: "Warm, engaging",
-    },
-    {
-      id: "FGY2WhTYpPnrIDTdsKH5",
-      name: "Laura",
-      gender: "Female",
-      age: "Young",
-      description: "Friendly, approachable",
-    },
-    {
-      id: "XrExE9yKIg1WjnnlVkGX",
-      name: "Matilda",
-      gender: "Female",
-      age: "Middle-aged",
-      description: "Professional, polished",
-    },
-    // Male voices (American)
-    {
-      id: "nPczCjzI2devNBz1zQrb",
-      name: "Brian",
-      gender: "Male",
-      age: "Middle-aged",
-      description: "Authoritative, trustworthy",
-    },
-    {
-      id: "iP95p4xoKVk53GoZ742B",
-      name: "Chris",
-      gender: "Male",
-      age: "Middle-aged",
-      description: "Clear, professional",
-    },
-    {
-      id: "cjVigY5qzO86Huf0OWal",
-      name: "Eric",
-      gender: "Male",
-      age: "Middle-aged",
-      description: "Warm, confident",
-    },
-  ];
+  // Use voice options from config (aliased for backwards compatibility with template)
+  const voiceOptions = VOICE_OPTIONS;
 
   // Get current user on mount
   useEffect(() => {

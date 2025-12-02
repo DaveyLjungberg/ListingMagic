@@ -26,6 +26,8 @@ import {
   selectBestPhotos,
   type PhotoCategory,
 } from "./photo-selection";
+import { DEFAULT_VOICE_ID } from "@/config/elevenlabs";
+import { logger } from "./logger";
 
 // Re-export photo selection utilities
 export {
@@ -59,13 +61,18 @@ const MLS_IMAGE_CONFIG = {
 
 /**
  * Load an image from a File object into an HTMLImageElement
+ * Returns both the image and its object URL for proper cleanup
  */
-function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+function loadImageFromFile(file: File): Promise<{ img: HTMLImageElement; objectUrl: string }> {
   return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
-    img.src = URL.createObjectURL(file);
+    img.onload = () => resolve({ img, objectUrl });
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl); // Clean up on error
+      reject(new Error(`Failed to load image: ${file.name}`));
+    };
+    img.src = objectUrl;
   });
 }
 
@@ -87,51 +94,53 @@ function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
  * Returns base64 string (without data URL prefix)
  */
 export async function compressImage(file: File, config = IMAGE_CONFIG): Promise<string> {
-  const img = await loadImageFromFile(file);
+  const { img, objectUrl } = await loadImageFromFile(file);
 
-  // Calculate new dimensions while maintaining aspect ratio
-  let { width, height } = img;
+  try {
+    // Calculate new dimensions while maintaining aspect ratio
+    let { width, height } = img;
 
-  if (width > config.maxWidth || height > config.maxHeight) {
-    const ratio = Math.min(
-      config.maxWidth / width,
-      config.maxHeight / height
+    if (width > config.maxWidth || height > config.maxHeight) {
+      const ratio = Math.min(
+        config.maxWidth / width,
+        config.maxHeight / height
+      );
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    // Create canvas and draw resized image
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("Failed to get canvas context");
+    }
+
+    // Use better image smoothing for quality
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // Draw the image
+    ctx.drawImage(img, 0, 0, width, height);
+
+    // Convert to base64 JPEG
+    const dataUrl = canvas.toDataURL(config.outputType, config.quality);
+
+    // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+    const base64 = dataUrl.split(",")[1];
+
+    logger.debug(
+      `Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB -> ${(base64.length * 0.75 / 1024).toFixed(0)}KB (${width}x${height})`
     );
-    width = Math.round(width * ratio);
-    height = Math.round(height * ratio);
+
+    return base64;
+  } finally {
+    // Always clean up object URL, even if an error occurred
+    URL.revokeObjectURL(objectUrl);
   }
-
-  // Create canvas and draw resized image
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Failed to get canvas context");
-  }
-
-  // Use better image smoothing for quality
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  // Draw the image
-  ctx.drawImage(img, 0, 0, width, height);
-
-  // Clean up object URL
-  URL.revokeObjectURL(img.src);
-
-  // Convert to base64 JPEG
-  const dataUrl = canvas.toDataURL(config.outputType, config.quality);
-
-  // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
-  const base64 = dataUrl.split(",")[1];
-
-  console.log(
-    `Compressed ${file.name}: ${(file.size / 1024).toFixed(0)}KB -> ${(base64.length * 0.75 / 1024).toFixed(0)}KB (${width}x${height})`
-  );
-
-  return base64;
 }
 
 /**
@@ -178,7 +187,7 @@ export async function compressImageFromUrl(url: string, config = IMAGE_CONFIG): 
 
   // Extract filename from URL for logging
   const filename = url.split('/').pop() || 'url-image';
-  console.log(
+  logger.debug(
     `Compressed URL image ${filename}: -> ${(base64.length * 0.75 / 1024).toFixed(0)}KB (${width}x${height})`
   );
 
@@ -300,7 +309,7 @@ async function processPhotosToImageInputs(
     }
   }
 
-  console.log(
+  logger.debug(
     `Processed ${imageInputs.length} images, total payload: ${(
       imageInputs.reduce((sum, img) => sum + (img.base64?.length || 0), 0) * 0.75 / 1024 / 1024
     ).toFixed(2)}MB`
@@ -353,7 +362,7 @@ export async function convertPhotosForMLS(
     }
   }
 
-  console.log(
+  logger.debug(
     `MLS: Processed ${images.length} high-quality images, total payload: ${(
       images.reduce((sum, img) => sum + img.length, 0) * 0.75 / 1024 / 1024
     ).toFixed(2)}MB`
@@ -365,6 +374,42 @@ export async function convertPhotosForMLS(
 // =============================================================================
 // API Request Functions
 // =============================================================================
+
+// Timeout configuration for different API calls
+const API_TIMEOUTS = {
+  generation: 120000,    // 2 minutes for AI generation
+  mlsExtraction: 180000, // 3 minutes for MLS extraction (many photos)
+  videoGeneration: 300000, // 5 minutes for video generation
+  default: 60000,        // 1 minute default
+};
+
+/**
+ * Fetch with timeout and abort controller
+ * Throws error if request takes longer than specified timeout
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = API_TIMEOUTS.default
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000} seconds`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Generate public remarks (listing description)
@@ -378,11 +423,15 @@ export async function generatePublicRemarks(
     analyze_photos: true,
   };
 
-  const response = await fetch("/api/generate-public-remarks", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await fetchWithTimeout(
+    "/api/generate-public-remarks",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    API_TIMEOUTS.generation
+  );
 
   const data = await response.json();
 
@@ -409,11 +458,15 @@ export async function generateWalkthruScript(
     public_remarks: publicRemarks,
   };
 
-  const response = await fetch("/api/generate-walkthru-script", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await fetchWithTimeout(
+    "/api/generate-walkthru-script",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    API_TIMEOUTS.generation
+  );
 
   const data = await response.json();
 
@@ -437,11 +490,15 @@ export async function generateFeatures(
     max_features: 30,
   };
 
-  const response = await fetch("/api/generate-features", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await fetchWithTimeout(
+    "/api/generate-features",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    API_TIMEOUTS.generation
+  );
 
   const data = await response.json();
 
@@ -790,11 +847,15 @@ export async function generateMLSData(
     model,
   };
 
-  const response = await fetch("/api/generate-mls-data", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await fetchWithTimeout(
+    "/api/generate-mls-data",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    API_TIMEOUTS.mlsExtraction
+  );
 
   const data = await response.json();
 
@@ -876,17 +937,21 @@ export async function generateMLSDataFromURLs(
   address: string,
   model: MLSModel = "claude"
 ): Promise<MLSDataResponse> {
-  console.log(`Generating MLS data from ${photoUrls.length} photo URLs using ${model}`);
+  logger.debug(`Generating MLS data from ${photoUrls.length} photo URLs using ${model}`);
 
-  const response = await fetch("/api/generate-mls-data-urls", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      photo_urls: photoUrls,
-      address: address,
-      model: model,
-    }),
-  });
+  const response = await fetchWithTimeout(
+    "/api/generate-mls-data-urls",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photo_urls: photoUrls,
+        address: address,
+        model: model,
+      }),
+    },
+    API_TIMEOUTS.mlsExtraction
+  );
 
   const data = await response.json();
 
@@ -932,7 +997,7 @@ export async function generateMLSDataWithStorage(
 
     // If existing URLs are provided (e.g., from Descriptions tab), use those instead of uploading
     if (existingUrls && existingUrls.length > 0 && photos.length === 0) {
-      console.log("[generateMLSDataWithStorage] Using existing photo URLs:", existingUrls.length);
+      logger.debug("[generateMLSDataWithStorage] Using existing photo URLs:", existingUrls.length);
       photoUrls = existingUrls;
       onProgress?.(`Using ${photoUrls.length} existing photos. Analyzing with ${model}...`);
     } else {
@@ -956,7 +1021,7 @@ export async function generateMLSDataWithStorage(
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
 
     // Log tax data being sent to backend
-    console.log("[generateMLSDataWithStorage] Sending tax_data to backend:", taxData);
+    logger.debug("[generateMLSDataWithStorage] Sending tax_data to backend:", taxData);
 
     const requestBody = {
       photo_urls: photoUrls,
@@ -964,15 +1029,19 @@ export async function generateMLSDataWithStorage(
       model,
       tax_data: taxData, // Pass tax data to backend for override
     };
-    console.log("[generateMLSDataWithStorage] Full request body:", JSON.stringify(requestBody, null, 2));
+    logger.debug("[generateMLSDataWithStorage] Full request body:", JSON.stringify(requestBody, null, 2));
 
-    const response = await fetch(`${backendUrl}/api/generate-mls-data-urls`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/generate-mls-data-urls`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
       },
-      body: JSON.stringify(requestBody),
-    });
+      API_TIMEOUTS.mlsExtraction
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -980,8 +1049,8 @@ export async function generateMLSDataWithStorage(
     }
 
     const mlsData = await response.json();
-    console.log("[generateMLSDataWithStorage] Response from backend:", mlsData);
-    console.log("[generateMLSDataWithStorage] tax_data_applied:", mlsData.tax_data_applied);
+    logger.debug("[generateMLSDataWithStorage] Response from backend:", mlsData);
+    logger.debug("[generateMLSDataWithStorage] tax_data_applied:", mlsData.tax_data_applied);
 
     return {
       mlsData,
@@ -1024,7 +1093,7 @@ export async function generateWalkthroughVideo(
   photoUrls: string[],
   listingId: string,
   includeVoiceover: boolean = true,
-  voiceId: string = "21m00Tcm4TlvDq8ikWAM",
+  voiceId: string = DEFAULT_VOICE_ID,
   onProgress?: (message: string) => void
 ): Promise<VideoGenerationResponse> {
   try {
@@ -1032,19 +1101,23 @@ export async function generateWalkthroughVideo(
 
     onProgress?.("Preparing video generation...");
 
-    const response = await fetch(`${backendUrl}/api/generate-video`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/generate-video`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          script,
+          photo_urls: photoUrls,
+          listing_id: listingId,
+          include_voiceover: includeVoiceover,
+          voice_id: voiceId,
+        }),
       },
-      body: JSON.stringify({
-        script,
-        photo_urls: photoUrls,
-        listing_id: listingId,
-        include_voiceover: includeVoiceover,
-        voice_id: voiceId,
-      }),
-    });
+      API_TIMEOUTS.videoGeneration
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -1134,19 +1207,23 @@ export async function refineContent(
       process.env.NEXT_PUBLIC_BACKEND_URL ||
       "https://listingmagic-production.up.railway.app";
 
-    const response = await fetch(`${backendUrl}/api/refine-content`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/refine-content`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content_type: contentType,
+          current_content: currentContent,
+          user_instruction: userInstruction,
+          conversation_history: conversationHistory,
+          property_data: propertyData,
+        }),
       },
-      body: JSON.stringify({
-        content_type: contentType,
-        current_content: currentContent,
-        user_instruction: userInstruction,
-        conversation_history: conversationHistory,
-        property_data: propertyData,
-      }),
-    });
+      API_TIMEOUTS.generation
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -1177,13 +1254,17 @@ export async function checkFairHousingCompliance(
       process.env.NEXT_PUBLIC_BACKEND_URL ||
       "https://listingmagic-production.up.railway.app";
 
-    const response = await fetch(`${backendUrl}/api/check-compliance`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/check-compliance`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
       },
-      body: JSON.stringify({ text }),
-    });
+      API_TIMEOUTS.default
+    );
 
     if (!response.ok) {
       const errorData = await response.json();

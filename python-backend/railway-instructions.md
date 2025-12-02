@@ -185,7 +185,9 @@ View API usage costs at:
 
 4. **Rate limit errors**
    - The frontend calls APIs sequentially to avoid this
+   - Client-side detection: The app detects rate limits and stops further requests
    - Consider upgrading API tier if persistent
+   - **Production Consideration**: For high traffic, implement server-side rate limiting using Redis or a similar solution. The frontend already handles rate limit errors gracefully, but server-side limiting prevents abuse.
 
 ### Get Help
 

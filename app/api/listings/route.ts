@@ -220,12 +220,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const listingType = searchParams.get("listing_type");
     const limit = parseInt(searchParams.get("limit") || "20", 10);
+    const summary = searchParams.get("summary") === "true";
 
     // SECURITY: Always filter by authenticated user's ID (server-validated)
     // Don't accept user_id from query params - that's a security vulnerability
+
+    // Use optimized column selection for list views (summary=true)
+    // Full data is needed when loading a listing into the form
+    const columns = summary
+      ? "id, property_address, address_json, property_type, bedrooms, bathrooms, public_remarks, created_at"
+      : "*";
+
     let query = supabase
       .from("listings")
-      .select("*")
+      .select(columns)
       .eq("user_id", user.id) // Always filter to own listings
       .order("created_at", { ascending: false })
       .limit(limit);

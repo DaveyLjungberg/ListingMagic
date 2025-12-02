@@ -28,6 +28,7 @@ import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing, updateListing } from "@/libs/listings";
 import { scanPhotoCompliance } from "@/libs/photoCompliance";
 import { VOICE_OPTIONS } from "@/config/elevenlabs";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function GeneratePage() {
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -1655,11 +1656,13 @@ export default function GeneratePage() {
                     />
                   </div>
 
-                  <PhotoUploader
-                    ref={photoUploaderDescRef}
-                    onPhotosChange={handlePhotosChangeDesc}
-                    disabled={isGeneratingDesc}
-                  />
+                  <ErrorBoundary section="Photo Uploader">
+                    <PhotoUploader
+                      ref={photoUploaderDescRef}
+                      onPhotosChange={handlePhotosChangeDesc}
+                      disabled={isGeneratingDesc}
+                    />
+                  </ErrorBoundary>
 
                   {/* Photo Compliance Scanner */}
                   {photosDesc.length > 0 && (
@@ -1806,57 +1809,60 @@ export default function GeneratePage() {
 
             {/* Main Content - Generated Sections */}
             <main className="lg:col-span-8 space-y-4">
-              <GeneratedSection
-                title="Public Remarks"
-                description="250-word property description for MLS listing"
-                generatedText={generationState.publicRemarks.data?.text}
-                buttons={publicRemarksButtons}
-                isExpanded={expandedSections.publicRemarks}
-                onToggle={() => setExpandedSections(prev => ({ ...prev, publicRemarks: !prev.publicRemarks }))}
-                isLoading={generationState.publicRemarks.status === "loading"}
-                error={generationState.publicRemarks.error}
-                generationTime={
-                  generationState.publicRemarks.data?.usage?.generation_time_ms
-                    ? formatGenerationTime(generationState.publicRemarks.data.usage.generation_time_ms)
-                    : null
-                }
-                cost={
-                  generationState.publicRemarks.data?.usage?.cost_usd
-                    ? formatCost(generationState.publicRemarks.data.usage.cost_usd)
-                    : null
-                }
-                onCopy={handleCopy}
-                onRefine={handleRefineRemarks}
-                isRefining={isRefiningRemarks}
-                complianceError={remarksComplianceError}
-                onClearComplianceError={() => setRemarksComplianceError(null)}
-              />
+              <ErrorBoundary section="Public Remarks">
+                <GeneratedSection
+                  title="Public Remarks"
+                  description="250-word property description for MLS listing"
+                  generatedText={generationState.publicRemarks.data?.text}
+                  buttons={publicRemarksButtons}
+                  isExpanded={expandedSections.publicRemarks}
+                  onToggle={() => setExpandedSections(prev => ({ ...prev, publicRemarks: !prev.publicRemarks }))}
+                  isLoading={generationState.publicRemarks.status === "loading"}
+                  error={generationState.publicRemarks.error}
+                  generationTime={
+                    generationState.publicRemarks.data?.usage?.generation_time_ms
+                      ? formatGenerationTime(generationState.publicRemarks.data.usage.generation_time_ms)
+                      : null
+                  }
+                  cost={
+                    generationState.publicRemarks.data?.usage?.cost_usd
+                      ? formatCost(generationState.publicRemarks.data.usage.cost_usd)
+                      : null
+                  }
+                  onCopy={handleCopy}
+                  onRefine={handleRefineRemarks}
+                  isRefining={isRefiningRemarks}
+                  complianceError={remarksComplianceError}
+                  onClearComplianceError={() => setRemarksComplianceError(null)}
+                />
+              </ErrorBoundary>
 
-              <GeneratedSection
-                title="Walk-thru Script"
-                description="Video narration script for property tour"
-                generatedText={generationState.walkthruScript.data?.script}
-                buttons={walkthruButtons}
-                isExpanded={expandedSections.walkthruScript}
-                onToggle={() => setExpandedSections(prev => ({ ...prev, walkthruScript: !prev.walkthruScript }))}
-                isLoading={generationState.walkthruScript.status === "loading"}
-                error={generationState.walkthruScript.error}
-                generationTime={
-                  generationState.walkthruScript.data?.usage?.generation_time_ms
-                    ? formatGenerationTime(generationState.walkthruScript.data.usage.generation_time_ms)
-                    : null
-                }
-                cost={
-                  generationState.walkthruScript.data?.usage?.cost_usd
-                    ? formatCost(generationState.walkthruScript.data.usage.cost_usd)
-                    : null
-                }
-                onCopy={handleCopy}
-                onRefine={handleRefineScript}
-                isRefining={isRefiningScript}
-                complianceError={scriptComplianceError}
-                onClearComplianceError={() => setScriptComplianceError(null)}
-              >
+              <ErrorBoundary section="Walk-thru Script">
+                <GeneratedSection
+                  title="Walk-thru Script"
+                  description="Video narration script for property tour"
+                  generatedText={generationState.walkthruScript.data?.script}
+                  buttons={walkthruButtons}
+                  isExpanded={expandedSections.walkthruScript}
+                  onToggle={() => setExpandedSections(prev => ({ ...prev, walkthruScript: !prev.walkthruScript }))}
+                  isLoading={generationState.walkthruScript.status === "loading"}
+                  error={generationState.walkthruScript.error}
+                  generationTime={
+                    generationState.walkthruScript.data?.usage?.generation_time_ms
+                      ? formatGenerationTime(generationState.walkthruScript.data.usage.generation_time_ms)
+                      : null
+                  }
+                  cost={
+                    generationState.walkthruScript.data?.usage?.cost_usd
+                      ? formatCost(generationState.walkthruScript.data.usage.cost_usd)
+                      : null
+                  }
+                  onCopy={handleCopy}
+                  onRefine={handleRefineScript}
+                  isRefining={isRefiningScript}
+                  complianceError={scriptComplianceError}
+                  onClearComplianceError={() => setScriptComplianceError(null)}
+                >
                 {/* Video Options - integrated into script section */}
                 {!videoData && (
                   <div className="space-y-4">
@@ -1943,7 +1949,8 @@ export default function GeneratePage() {
                     </div>
                   </div>
                 )}
-              </GeneratedSection>
+                </GeneratedSection>
+              </ErrorBoundary>
 
               {/* Video Download Links */}
               {videoData && (
@@ -2000,31 +2007,33 @@ export default function GeneratePage() {
                 </div>
               )}
 
-              <GeneratedSection
-                title="Features Sheet"
-                description="Detailed property features and highlights"
-                generatedText={formatFeaturesText(generationState.features.data)}
-                buttons={featuresButtons}
-                isExpanded={expandedSections.features}
-                onToggle={() => setExpandedSections(prev => ({ ...prev, features: !prev.features }))}
-                isLoading={generationState.features.status === "loading"}
-                error={generationState.features.error}
-                generationTime={
-                  generationState.features.data?.usage?.generation_time_ms
-                    ? formatGenerationTime(generationState.features.data.usage.generation_time_ms)
-                    : null
-                }
-                cost={
-                  generationState.features.data?.usage?.cost_usd
-                    ? formatCost(generationState.features.data.usage.cost_usd)
-                    : null
-                }
-                onCopy={handleCopy}
-                onRefine={handleRefineFeatures}
-                isRefining={isRefiningFeatures}
-                complianceError={featuresComplianceError}
-                onClearComplianceError={() => setFeaturesComplianceError(null)}
-              />
+              <ErrorBoundary section="Features Sheet">
+                <GeneratedSection
+                  title="Features Sheet"
+                  description="Detailed property features and highlights"
+                  generatedText={formatFeaturesText(generationState.features.data)}
+                  buttons={featuresButtons}
+                  isExpanded={expandedSections.features}
+                  onToggle={() => setExpandedSections(prev => ({ ...prev, features: !prev.features }))}
+                  isLoading={generationState.features.status === "loading"}
+                  error={generationState.features.error}
+                  generationTime={
+                    generationState.features.data?.usage?.generation_time_ms
+                      ? formatGenerationTime(generationState.features.data.usage.generation_time_ms)
+                      : null
+                  }
+                  cost={
+                    generationState.features.data?.usage?.cost_usd
+                      ? formatCost(generationState.features.data.usage.cost_usd)
+                      : null
+                  }
+                  onCopy={handleCopy}
+                  onRefine={handleRefineFeatures}
+                  isRefining={isRefiningFeatures}
+                  complianceError={featuresComplianceError}
+                  onClearComplianceError={() => setFeaturesComplianceError(null)}
+                />
+              </ErrorBoundary>
 
             </main>
           </div>
@@ -2143,12 +2152,14 @@ export default function GeneratePage() {
                         Save Changes
                       </button>
                     </div>
-                    <MLSDataDisplay
-                      data={mlsData}
-                      editableData={mlsDataEditable}
-                      onFieldChange={handleMLSFieldChange}
-                      isEditable={true}
-                    />
+                    <ErrorBoundary section="MLS Data Display">
+                      <MLSDataDisplay
+                        data={mlsData}
+                        editableData={mlsDataEditable}
+                        onFieldChange={handleMLSFieldChange}
+                        isEditable={true}
+                      />
+                    </ErrorBoundary>
                   </div>
                 ) : (
                   /* Empty State */

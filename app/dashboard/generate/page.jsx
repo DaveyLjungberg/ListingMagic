@@ -563,7 +563,7 @@ export default function GeneratePage() {
             addressString,
             user?.id,
             "claude",
-            () => {}, // No individual toast updates since we're showing overall progress
+            () => { }, // No individual toast updates since we're showing overall progress
             taxData
           );
 
@@ -1863,92 +1863,89 @@ export default function GeneratePage() {
                   complianceError={scriptComplianceError}
                   onClearComplianceError={() => setScriptComplianceError(null)}
                 >
-                {/* Video Options - integrated into script section */}
-                {!videoData && (
-                  <div className="space-y-4">
-                    {/* Voiceover Toggle */}
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={includeVoiceover}
-                        onChange={(e) => setIncludeVoiceover(e.target.checked)}
-                        className="checkbox checkbox-primary checkbox-sm"
-                      />
-                      <span className="text-sm font-medium">Include professional voiceover</span>
-                      <span className="text-xs text-base-content/50">
-                        {includeVoiceover ? "(~2 minutes)" : "(5 sec/photo, instant)"}
-                      </span>
-                    </label>
+                  {/* Video Options - integrated into script section */}
+                  {!videoData && (
+                    <div className="space-y-4">
+                      {/* Voiceover Toggle */}
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={includeVoiceover}
+                          onChange={(e) => setIncludeVoiceover(e.target.checked)}
+                          className="checkbox checkbox-primary checkbox-sm"
+                        />
+                        <span className="text-sm font-medium">Include professional voiceover</span>
+                        <span className="text-xs text-base-content/50">
+                          {includeVoiceover ? "(~2 minutes)" : "(5 sec/photo, instant)"}
+                        </span>
+                      </label>
 
-                    {/* Voice Selection - only visible when voiceover enabled */}
-                    <div className={`transition-all duration-300 overflow-hidden ${
-                      includeVoiceover ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-                    }`}>
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-base-content/70">Select Voice</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {voiceOptions.map((voice) => (
-                            <button
-                              key={voice.id}
-                              onClick={() => setSelectedVoice(voice.id)}
-                              className={`relative p-3 border-2 rounded-lg text-left transition-all ${
-                                selectedVoice === voice.id
-                                  ? "border-primary bg-primary/5"
-                                  : "border-base-300 hover:border-base-content/30"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-medium text-sm">{voice.name}</span>
-                                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                      voice.gender === "Female"
-                                        ? "bg-pink-100 text-pink-700"
-                                        : "bg-blue-100 text-blue-700"
-                                    }`}>
-                                      {voice.gender === "Female" ? "F" : "M"}
-                                    </span>
-                                    {voice.age && (
-                                      <span className="text-xs text-base-content/40">{voice.age}</span>
-                                    )}
+                      {/* Voice Selection - only visible when voiceover enabled */}
+                      <div className={`transition-all duration-300 overflow-hidden ${includeVoiceover ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+                        }`}>
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-base-content/70">Select Voice</label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {voiceOptions.map((voice) => (
+                              <button
+                                key={voice.id}
+                                onClick={() => setSelectedVoice(voice.id)}
+                                className={`relative p-3 border-2 rounded-lg text-left transition-all ${selectedVoice === voice.id
+                                    ? "border-primary bg-primary/5"
+                                    : "border-base-300 hover:border-base-content/30"
+                                  }`}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-medium text-sm">{voice.name}</span>
+                                      <span className={`text-xs px-1.5 py-0.5 rounded ${voice.gender === "Female"
+                                          ? "bg-pink-100 text-pink-700"
+                                          : "bg-blue-100 text-blue-700"
+                                        }`}>
+                                        {voice.gender === "Female" ? "F" : "M"}
+                                      </span>
+                                      {voice.age && (
+                                        <span className="text-xs text-base-content/40">{voice.age}</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-base-content/60 mt-0.5">{voice.description}</p>
                                   </div>
-                                  <p className="text-xs text-base-content/60 mt-0.5">{voice.description}</p>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePreviewVoice(voice.id);
+                                    }}
+                                    disabled={isPreviewingVoice === voice.id}
+                                    className="ml-1 p-1.5 text-base-content/40 hover:text-primary transition-colors"
+                                    title="Preview voice"
+                                  >
+                                    {isPreviewingVoice === voice.id ? (
+                                      <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                    ) : (
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+                                      </svg>
+                                    )}
+                                  </button>
                                 </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handlePreviewVoice(voice.id);
-                                  }}
-                                  disabled={isPreviewingVoice === voice.id}
-                                  className="ml-1 p-1.5 text-base-content/40 hover:text-primary transition-colors"
-                                  title="Preview voice"
-                                >
-                                  {isPreviewingVoice === voice.id ? (
-                                    <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                {selectedVoice === voice.id && (
+                                  <div className="absolute top-1.5 right-1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-primary">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                  ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </div>
-                              {selectedVoice === voice.id && (
-                                <div className="absolute top-1.5 right-1.5">
-                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-primary">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                  </svg>
-                                </div>
-                              )}
-                            </button>
-                          ))}
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
                 </GeneratedSection>
               </ErrorBoundary>
 
@@ -2042,115 +2039,61 @@ export default function GeneratePage() {
           /* MLS DATA TAB - Always uses data from Descriptions tab           */
           /* =============================================================== */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left Sidebar - Only show when we have data from Descriptions */}
-            {((photoUrlsDesc.length > 0 || photosDesc.length > 0) && addressDesc?.street) && (
-              <aside className="lg:col-span-4 space-y-6 relative z-10">
-                <div className="sticky top-40">
-                  {/* Card wrapper for sidebar content */}
-                  <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-                    {/* Info Banner */}
-                    {mlsData ? (
-                      <div className="alert alert-success">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div className="flex-1">
-                          <span className="font-medium">MLS Data Extracted</span>
-                          <p className="text-xs opacity-70 mt-0.5">
-                            Using {photoUrlsDesc.length || photosDesc.length} photos
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="alert alert-info">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                        </svg>
-                        <div className="flex-1">
-                          <span className="font-medium">Ready to Extract</span>
-                          <p className="text-xs opacity-70 mt-0.5">
-                            {photoUrlsDesc.length || photosDesc.length} photos from Descriptions tab
-                          </p>
-                        </div>
-                      </div>
-                    )}
+            {/* Left Sidebar - REMOVED per user request */}
 
-                    {/* Address Summary */}
-                    <div className="bg-base-200/50 rounded-xl p-4">
-                      <p className="text-sm font-medium text-base-content/80">Property Address</p>
-                      <p className="text-base-content mt-1">
-                        {addressDesc.street}, {addressDesc.city}, {addressDesc.state} {addressDesc.zip_code}
-                      </p>
-                    </div>
-
-                    {/* Generate/Regenerate MLS Button */}
-                    <button
-                      onClick={handleGenerateMLS}
-                      disabled={isGeneratingMLS}
-                      className={`btn w-full gap-2 ${mlsData ? 'btn-outline btn-sm' : 'btn-primary'}`}
-                    >
-                      {isGeneratingMLS ? (
-                        <>
-                          <span className="loading loading-spinner loading-sm"></span>
-                          {mlsData ? 'Regenerating...' : 'Extracting MLS Data...'}
-                        </>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            {mlsData ? (
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
-                            )}
-                          </svg>
-                          {mlsData ? 'Re-extract MLS Data' : 'Generate MLS Data'}
-                        </>
-                      )}
-                    </button>
-
-                    {/* Clear MLS Data Button */}
-                    {mlsData && (
-                      <button
-                        onClick={() => {
-                          setMlsData(null);
-                          setMlsDataEditable(null);
-                          toast.success("MLS data cleared");
-                        }}
-                        className="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-error"
-                      >
-                        Clear MLS data
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </aside>
-            )}
-
-            {/* Main Content - MLS Data Display (full width when no sidebar) */}
-            <main className={((photoUrlsDesc.length > 0 || photosDesc.length > 0) && addressDesc?.street) ? "lg:col-span-8" : "lg:col-span-12"}>
+            {/* Main Content - MLS Data Display (full width) */}
+            <main className="lg:col-span-12">
               <div className="bg-base-100 border border-base-200 rounded-2xl shadow-sm p-6">
                 {isGeneratingMLS ? (
-                  /* Loading State */
-                  <div className="flex flex-col items-center justify-center py-16">
-                    <span className="loading loading-spinner loading-lg text-primary"></span>
-                    <p className="text-base-content/60 mt-4">Extracting MLS data from photos...</p>
-                    <p className="text-base-content/40 text-sm mt-1">This may take 10-30 seconds</p>
+                  /* Loading State with Skeleton Animation */
+                  <div className="space-y-6 animate-pulse">
+                    {/* Header Skeleton */}
+                    <div className="flex justify-between items-center mb-6">
+                      <div className="h-8 bg-base-300 rounded w-48"></div>
+                      <div className="h-8 bg-base-300 rounded w-32"></div>
+                    </div>
+
+                    {/* High Confidence Fields Skeleton */}
+                    <div className="h-64 bg-base-200 rounded-xl"></div>
+
+                    {/* Moderate Confidence Fields Skeleton */}
+                    <div className="h-48 bg-base-200 rounded-xl"></div>
+
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <span className="loading loading-spinner loading-lg text-primary"></span>
+                      <p className="text-base-content/60 mt-4">Extracting MLS data from photos...</p>
+                      <p className="text-base-content/40 text-sm mt-1">This may take 10-30 seconds</p>
+                    </div>
                   </div>
                 ) : mlsData ? (
                   /* MLS Data Display */
                   <div>
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-xl font-semibold">Extracted MLS Data</h2>
-                      <button
-                        onClick={handleSaveMLSEdits}
-                        disabled={!currentListingIdMLS}
-                        className="btn btn-primary btn-sm gap-2"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3" />
-                        </svg>
-                        Save Changes
-                      </button>
+                      <div className="flex gap-2">
+                        {/* Re-Extract Button (Moved from Sidebar) */}
+                        <button
+                          onClick={handleGenerateMLS}
+                          disabled={isGeneratingMLS}
+                          className="btn btn-outline btn-sm gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                          </svg>
+                          Re-Extract
+                        </button>
+
+                        <button
+                          onClick={handleSaveMLSEdits}
+                          disabled={!currentListingIdMLS}
+                          className="btn btn-primary btn-sm gap-2"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 3.75H6.912a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H15M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859M12 3v8.25m0 0l-3-3m3 3l3-3" />
+                          </svg>
+                          Save Changes
+                        </button>
+                      </div>
                     </div>
                     <ErrorBoundary section="MLS Data Display">
                       <MLSDataDisplay

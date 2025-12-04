@@ -13,9 +13,7 @@ google-generativeai>=0.8.0  # Gemini 3 Pro - features & RESO data
 
 # Video Generation
 moviepy>=1.0.3
-elevenlabs>=1.0.0
 ffmpeg-python>=0.2.0
-mutagen>=1.47.0
 
 # Image Processing
 pillow>=10.0.0

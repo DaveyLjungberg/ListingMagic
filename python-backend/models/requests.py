@@ -151,19 +151,14 @@ class ResoDataRequest(BaseModel):
 
 
 class VideoGenerationRequest(BaseModel):
-    """Request for generating video with voiceover."""
+    """Request for generating silent video from property photos."""
     property_details: PropertyDetailsRequest
-    script: str = Field(..., min_length=50, description="Walk-thru script for voiceover")
+    script: str = Field(..., min_length=50, description="Walk-thru script (saved as text file)")
 
     # Video settings
-    duration_seconds: Optional[int] = Field(None, description="Override auto duration")
+    seconds_per_photo: float = Field(default=5.0, ge=2.0, le=15.0, description="Duration per photo")
     resolution: str = Field(default="1080p", description="Video resolution")
     aspect_ratio: str = Field(default="16:9", description="Aspect ratio")
-
-    # Audio settings
-    voice: str = Field(default="professional_male", description="Voiceover voice selection")
-    background_music: bool = Field(default=True)
-    music_volume: float = Field(default=0.2, ge=0.0, le=1.0)
 
     # Output settings
     output_format: str = Field(default="mp4")

@@ -26,7 +26,7 @@ import {
   selectBestPhotos,
   type PhotoCategory,
 } from "./photo-selection";
-import { DEFAULT_VOICE_ID } from "@/config/elevenlabs";
+// ElevenLabs voiceover removed - videos are now silent
 import { logger } from "./logger";
 
 // Re-export photo selection utilities
@@ -377,10 +377,10 @@ export async function convertPhotosForMLS(
 
 // Timeout configuration for different API calls
 const API_TIMEOUTS = {
-  generation: 120000,    // 2 minutes for AI generation
-  mlsExtraction: 180000, // 3 minutes for MLS extraction (many photos)
-  videoGeneration: 300000, // 5 minutes for video generation
-  default: 60000,        // 1 minute default
+  generation: 300000,    // 5 minutes for AI generation (increased from 2 min)
+  mlsExtraction: 300000, // 5 minutes for MLS extraction (many photos)
+  videoGeneration: 600000, // 10 minutes for video generation
+  default: 120000,       // 2 minutes default (increased from 1 min)
 };
 
 /**
@@ -1063,7 +1063,7 @@ export async function generateMLSDataWithStorage(
 }
 
 // =============================================================================
-// Video Generation with ElevenLabs TTS
+// Video Generation (Silent - No Voiceover)
 // =============================================================================
 
 /**
@@ -1073,27 +1073,25 @@ export interface VideoGenerationResponse {
   success: boolean;
   video_url: string;
   script_url?: string;
-  has_voiceover: boolean;
+  has_voiceover: boolean; // Always false - videos are silent
   duration_seconds: number;
   processing_time_seconds: number;
   photos_used: number;
 }
 
 /**
- * Generate walkthrough video with voiceover
- * @param script - Walk-thru script text
+ * Generate silent walkthrough video from photos
+ * @param script - Walk-thru script text (saved as text file for reference)
  * @param photoUrls - Array of public URLs to photos
  * @param listingId - Listing ID for storage path
- * @param includeVoiceover - Whether to include ElevenLabs voiceover
- * @param voiceId - ElevenLabs voice ID to use
+ * @param secondsPerPhoto - Duration per photo (default 5.0)
  * @param onProgress - Optional callback for progress updates
  */
 export async function generateWalkthroughVideo(
   script: string,
   photoUrls: string[],
   listingId: string,
-  includeVoiceover: boolean = true,
-  voiceId: string = DEFAULT_VOICE_ID,
+  secondsPerPhoto: number = 5.0,
   onProgress?: (message: string) => void
 ): Promise<VideoGenerationResponse> {
   try {
@@ -1112,8 +1110,7 @@ export async function generateWalkthroughVideo(
           script,
           photo_urls: photoUrls,
           listing_id: listingId,
-          include_voiceover: includeVoiceover,
-          voice_id: voiceId,
+          seconds_per_photo: secondsPerPhoto,
         }),
       },
       API_TIMEOUTS.videoGeneration

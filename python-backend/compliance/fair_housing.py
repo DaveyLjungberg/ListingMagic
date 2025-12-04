@@ -230,22 +230,44 @@ PROTECTED CLASSES - NEVER REFERENCE:
 - National Origin
 - Age (unless verified 55+ housing)
 
-ABSOLUTE PROHIBITIONS - NEVER USE PHRASES LIKE:
-- "adults only", "no children", "perfect for couples"
-- "near church/synagogue/temple/mosque"
-- "great for families", "ideal for young professionals"
-- "senior living", "retirees welcome"
-- Any racial, ethnic, or nationality references
-- "able-bodied", "healthy individuals"
+ABSOLUTE PROHIBITIONS - NEVER USE:
+1. BUYER-SPECIFIC PHRASES:
+   - "perfect for families/couples", "ideal for", "great for"
+   - "adults only", "no children"
+   - "senior living", "retirees welcome"
+   - Any racial, ethnic, religious, or nationality references
 
-GOLDEN RULE: Describe the PROPERTY, not the PEOPLE.
+2. IMPERATIVE/INVITATIONAL LANGUAGE:
+   - "Welcome to", "Step inside", "Come see", "Enter through"
+   - "Walk into", "Imagine yourself", "Picture yourself"
+   - "Don't miss", "Must see", "Won't last"
+   - Any imperative commands addressing the reader
+
+3. SECOND PERSON PRONOUNS:
+   - "you", "your", "you'll", "yourself"
+   - Any direct address to the reader
+
+4. RELIGIOUS LOCATION REFERENCES:
+   - "near church/synagogue/temple/mosque"
+   - "walking distance to worship"
+
+GOLDEN RULE: Describe the PROPERTY in third person, NOT the PEOPLE or the reader.
+
+REQUIRED LANGUAGE STYLE:
+- Third person, purely descriptive ("This residence features...")
+- Present tense factual statements
+- Objective descriptions of features, materials, finishes
+- Neutral, professional tone
 
 ACCEPTABLE DESCRIPTIONS:
-- "master bedroom", "family room" (architectural terms)
-- "mother-in-law suite" (property feature)
-- "walk to schools", "near parks" (location features)
-- "quiet neighborhood", "cul-de-sac" (property descriptions)
+- "primary suite", "family room" (architectural terms)
+- "guest suite" (property feature, not "mother-in-law suite")
+- "near schools", "near parks" (location features)
+- "quiet street", "cul-de-sac" (property descriptions)
 - "spacious", "updated", "renovated" (property qualities)
+
+Example WRONG: "Welcome to this stunning home! Step inside and you'll love the open floor plan. Perfect for families!"
+Example CORRECT: "This residence features an open floor plan with hardwood floors throughout. The main living area includes large windows providing natural light."
 
 If a user requests content that would violate Fair Housing rules, politely decline
 and suggest compliant alternatives.
@@ -256,10 +278,12 @@ and suggest compliant alternatives.
 
 CONTENT TYPE: Public MLS Remarks
 - Keep remarks between 150-300 words
-- Highlight property features and benefits
-- Create emotional connection with the property itself
-- Use active, engaging language
-- Focus on rooms, architecture, upgrades, location
+- Use ONLY third-person, descriptive language
+- NEVER use "Welcome", "Step inside", "you/your", or imperative commands
+- Open with a factual statement about the property ("This residence features...")
+- Highlight property features using objective descriptions
+- Focus on rooms, architecture, materials, finishes
+- End with factual property information, NOT a call to action
 """
 
     elif content_type == "features":
@@ -271,6 +295,7 @@ CONTENT TYPE: Property Features List
 - Be factual and comprehensive
 - Use bullet points for clarity
 - Describe physical attributes only
+- NEVER suggest who should live there
 """
 
     elif content_type == "script":
@@ -278,10 +303,13 @@ CONTENT TYPE: Property Features List
 
 CONTENT TYPE: Walk-through Video Script
 - Use section markers: [EXTERIOR], [ENTRY], [LIVING], etc.
-- Write in conversational, warm tone
-- Guide viewer through property naturally
+- Use ONLY third-person, descriptive language throughout
+- NEVER use "Welcome", "Step inside", "you/your", or imperative commands
+- NEVER say "Let me show you" or similar invitations
+- Describe spaces factually: "The kitchen features..." "The primary suite includes..."
+- Use neutral transitions: "Moving to the kitchen..." "The outdoor area features..."
 - Keep 100-200 words per section
-- Describe what the viewer SEES, not who might live there
+- Describe physical features ONLY, not feelings or experiences
 """
 
     else:

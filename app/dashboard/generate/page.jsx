@@ -136,13 +136,14 @@ export default function GeneratePage() {
               county: descState.addressDesc.county || null,
             },
             property_type: "single_family",
-            bedrooms: null,
-            bathrooms: null,
+            bedrooms: mlsState.mlsData?.mls_fields?.bedrooms || null,
+            bathrooms: mlsState.mlsData?.mls_fields?.bathrooms || null,
             public_remarks: descState.generationState.publicRemarks.data?.text || null,
             walkthru_script: descState.generationState.walkthruScript.data?.script || null,
             features: descState.generationState.features.data
               ? JSON.stringify(descState.generationState.features.data.categorized_features || descState.generationState.features.data.features_list)
               : null,
+            mls_data: mlsState.mlsData || null,
             photo_urls: descState.photoUrlsDesc,
             ai_cost: totalCost,
             generation_time: totalTime,
@@ -171,66 +172,96 @@ export default function GeneratePage() {
     user,
     descState.addressDesc,
     descState,
+    mlsState.mlsData,
+    mlsState,
   ]);
 
-  // Auto-save MLS listing when extraction completes
+  // Auto-save or update MLS data
   useEffect(() => {
     if (mlsState.currentListingIdMLS) {
-      console.log("[Auto-save MLS] Skipping - already have listing ID:", mlsState.currentListingIdMLS);
+      console.log("[Auto-save MLS] Skipping - already have MLS listing ID:", mlsState.currentListingIdMLS);
       return;
     }
 
-    const hasValidPhotoUrls = mlsState.photoUrlsMLS.length > 0 &&
-      mlsState.photoUrlsMLS.every(url => url.startsWith('http') && !url.startsWith('blob:'));
+    if (!mlsState.mlsData) {
+      return;
+    }
 
-    if (mlsState.mlsData && user && mlsState.addressMLS && hasValidPhotoUrls) {
-      const autoSaveMLS = async () => {
+    // If we have a descriptions listing ID, UPDATE it with MLS data
+    // Otherwise, create a new MLS-only listing
+    if (descState.currentListingIdDesc) {
+      console.log("[Auto-save MLS] Updating descriptions listing with MLS data:", descState.currentListingIdDesc);
+      const updateMLS = async () => {
         try {
-          const propertyAddress = mlsState.addressMLS
-            ? `${mlsState.addressMLS.street}, ${mlsState.addressMLS.city || ""}, ${mlsState.addressMLS.state || ""} ${mlsState.addressMLS.zip_code}`.trim()
-            : "";
-
-          const listingData = {
-            user_id: user.id,
-            listing_type: "mls_data",
-            property_address: propertyAddress,
-            address_json: {
-              street: mlsState.addressMLS.street,
-              city: mlsState.addressMLS.city || "",
-              state: mlsState.addressMLS.state || "",
-              zip_code: mlsState.addressMLS.zip_code,
-              apn: mlsState.addressMLS.apn || null,
-              yearBuilt: mlsState.addressMLS.yearBuilt || null,
-              lotSize: mlsState.addressMLS.lotSize || null,
-              county: mlsState.addressMLS.county || null,
-            },
-            property_type: "single_family",
+          const result = await updateListing(descState.currentListingIdDesc, {
+            mls_data: mlsState.mlsData,
             bedrooms: mlsState.mlsData.mls_fields?.bedrooms || null,
             bathrooms: mlsState.mlsData.mls_fields?.bathrooms || null,
-            public_remarks: null,
-            walkthru_script: null,
-            features: null,
-            mls_data: mlsState.mlsData,
-            photo_urls: mlsState.photoUrlsMLS,
-            ai_cost: 0,
-            generation_time: mlsState.mlsData.processing_time_ms || 0,
-          };
-
-          console.log("[Auto-save MLS] Saving with photo URLs:", mlsState.photoUrlsMLS);
-          const result = await saveListing(listingData);
+          });
 
           if (result.success) {
-            mlsState.setCurrentListingIdMLS(result.id);
-            toast.success("MLS data saved automatically", { duration: 3000, icon: "✓" });
+            mlsState.setCurrentListingIdMLS(descState.currentListingIdDesc);
+            toast.success("MLS data saved", { duration: 2000, icon: "✓" });
           }
         } catch (error) {
-          console.error("Auto-save MLS error:", error);
+          console.error("Update MLS error:", error);
         }
       };
+      updateMLS();
+    } else {
+      // Create standalone MLS listing (for MLS-only generation)
+      const hasValidPhotoUrls = mlsState.photoUrlsMLS.length > 0 &&
+        mlsState.photoUrlsMLS.every(url => url.startsWith('http') && !url.startsWith('blob:'));
 
-      autoSaveMLS();
+      if (user && mlsState.addressMLS && hasValidPhotoUrls) {
+        const autoSaveMLS = async () => {
+          try {
+            const propertyAddress = mlsState.addressMLS
+              ? `${mlsState.addressMLS.street}, ${mlsState.addressMLS.city || ""}, ${mlsState.addressMLS.state || ""} ${mlsState.addressMLS.zip_code}`.trim()
+              : "";
+
+            const listingData = {
+              user_id: user.id,
+              listing_type: "mls_data",
+              property_address: propertyAddress,
+              address_json: {
+                street: mlsState.addressMLS.street,
+                city: mlsState.addressMLS.city || "",
+                state: mlsState.addressMLS.state || "",
+                zip_code: mlsState.addressMLS.zip_code,
+                apn: mlsState.addressMLS.apn || null,
+                yearBuilt: mlsState.addressMLS.yearBuilt || null,
+                lotSize: mlsState.addressMLS.lotSize || null,
+                county: mlsState.addressMLS.county || null,
+              },
+              property_type: "single_family",
+              bedrooms: mlsState.mlsData.mls_fields?.bedrooms || null,
+              bathrooms: mlsState.mlsData.mls_fields?.bathrooms || null,
+              public_remarks: null,
+              walkthru_script: null,
+              features: null,
+              mls_data: mlsState.mlsData,
+              photo_urls: mlsState.photoUrlsMLS,
+              ai_cost: 0,
+              generation_time: mlsState.mlsData.processing_time_ms || 0,
+            };
+
+            console.log("[Auto-save MLS] Creating standalone MLS listing");
+            const result = await saveListing(listingData);
+
+            if (result.success) {
+              mlsState.setCurrentListingIdMLS(result.id);
+              toast.success("MLS data saved automatically", { duration: 3000, icon: "✓" });
+            }
+          } catch (error) {
+            console.error("Auto-save MLS error:", error);
+          }
+        };
+
+        autoSaveMLS();
+      }
     }
-  }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState]);
+  }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState, descState.currentListingIdDesc]);
 
   // =========================================================================
   // GENERATION HANDLERS
@@ -493,6 +524,22 @@ export default function GeneratePage() {
         descState.setPhotoUrlsDesc(photoUrls);
         console.log("[handleGenerateMLS] Saved photo URLs to Descriptions state:", photoUrls);
       }
+
+      // Save or update MLS data in the listing
+      if (descState.currentListingIdDesc) {
+        // Update existing descriptions listing with MLS data
+        console.log("[handleGenerateMLS] Updating listing with MLS data:", descState.currentListingIdDesc);
+        const updateResult = await updateListing(descState.currentListingIdDesc, {
+          mls_data: result,
+          bedrooms: result.mls_fields?.bedrooms || null,
+          bathrooms: result.mls_fields?.bathrooms || null,
+        });
+        if (updateResult.success) {
+          mlsState.setCurrentListingIdMLS(descState.currentListingIdDesc);
+        }
+      }
+      // Note: If no descState.currentListingIdDesc, the auto-save effect will create a standalone MLS listing
+
       toast.success(`Extracted MLS data from ${photoUrls.length} photos!`, { id: "mls-generating" });
       wakeLock.sendCompletionNotification("MLS data extraction complete!");
     } catch (error) {
@@ -747,7 +794,32 @@ export default function GeneratePage() {
 
     // Track listing ID for future updates
     descState.setCurrentListingIdDesc(listing.id);
-  }, [descState]);
+
+    // Handle MLS state based on whether listing has MLS data
+    if (listing.mls_data) {
+      // Hydrate MLS state from the selected listing
+      console.log("[handleLoadDescListing] Loading MLS data from listing:", listing.mls_data);
+      mlsState.setMlsData(listing.mls_data);
+      mlsState.setCurrentListingIdMLS(listing.id);
+      
+      // Set photo URLs and address for MLS context (for auto-save effect consistency)
+      if (listing.photo_urls && listing.photo_urls.length > 0) {
+        mlsState.setPhotoUrlsMLS(listing.photo_urls);
+      }
+      if (listing.address_json) {
+        mlsState.setAddressMLS(listing.address_json);
+      }
+    } else {
+      // Clear MLS state when listing has no MLS data
+      // This ensures the MLS Data tab shows empty state for listings without MLS data
+      console.log("[handleLoadDescListing] No MLS data in listing, clearing MLS state");
+      mlsState.setMlsData(null);
+      mlsState.setMlsDataEditable(null);
+      mlsState.setCurrentListingIdMLS(null);
+      mlsState.setPhotoUrlsMLS([]);
+      mlsState.setAddressMLS(null);
+    }
+  }, [descState, mlsState]);
 
   // =========================================================================
   // REFINEMENT HANDLER WRAPPERS
@@ -881,18 +953,14 @@ export default function GeneratePage() {
             setScriptComplianceError={refinement.setScriptComplianceError}
             setFeaturesComplianceError={refinement.setFeaturesComplianceError}
 
-            // Video state and handlers
+            // Video state and handlers (silent videos only)
             isGeneratingVideo={video.isGeneratingVideo}
             videoData={video.videoData}
-            includeVoiceover={video.includeVoiceover}
-            setIncludeVoiceover={video.setIncludeVoiceover}
-            selectedVoice={video.selectedVoice}
-            setSelectedVoice={video.setSelectedVoice}
-            isPreviewingVoice={video.isPreviewingVoice}
+            secondsPerPhoto={video.secondsPerPhoto}
+            setSecondsPerPhoto={video.setSecondsPerPhoto}
             handleGenerateVideo={video.handleGenerateVideo}
             handleDownloadVideo={video.handleDownloadVideo}
             handlePreviewVideo={video.handlePreviewVideo}
-            handlePreviewVoice={video.handlePreviewVoice}
 
             // Helpers
             formatFeaturesText={descState.formatFeaturesText}

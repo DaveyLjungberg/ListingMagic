@@ -6,15 +6,14 @@ import { generateWalkthroughVideo, getFriendlyErrorMessage } from "@/libs/genera
 
 /**
  * Hook for managing video generation state and handlers.
+ * Videos are silent (no voiceover) - just photos with transitions.
  */
 export function useVideoGeneration() {
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoData, setVideoData] = useState(null);
-  const [includeVoiceover, setIncludeVoiceover] = useState(true);
-  const [selectedVoice, setSelectedVoice] = useState("EXAVITQu4vr4xnSDxMaL"); // Sarah default
-  const [isPreviewingVoice, setIsPreviewingVoice] = useState(null);
+  const [secondsPerPhoto, setSecondsPerPhoto] = useState(5.0);
 
-  // Generate video from walk-thru script
+  // Generate silent video from walk-thru script and photos
   const handleGenerateVideo = async (script, photoUrlsDesc, currentListingIdDesc) => {
     if (!script) {
       toast.error("Please generate a walk-thru script first");
@@ -34,18 +33,14 @@ export function useVideoGeneration() {
     setIsGeneratingVideo(true);
     setVideoData(null);
 
-    const loadingMessage = includeVoiceover
-      ? "Generating video with voiceover... (1-2 minutes)"
-      : "Generating silent video...";
-    const toastId = toast.loading(loadingMessage, { duration: 180000 });
+    const toastId = toast.loading("Generating video... (30-60 seconds)", { duration: 180000 });
 
     try {
       const result = await generateWalkthroughVideo(
         script,
         photoUrlsDesc,
         currentListingIdDesc,
-        includeVoiceover,
-        selectedVoice,
+        secondsPerPhoto,
         (message) => {
           toast.loading(message, { id: toastId });
         }
@@ -53,17 +48,10 @@ export function useVideoGeneration() {
 
       setVideoData(result);
 
-      if (!result.has_voiceover) {
-        toast.success(
-          `Video ready (${Math.round(result.duration_seconds)}s) - no voiceover, script available separately`,
-          { id: toastId, duration: 5000 }
-        );
-      } else {
-        toast.success(
-          `Video ready! ${Math.round(result.duration_seconds)}s with professional voiceover`,
-          { id: toastId, duration: 5000 }
-        );
-      }
+      toast.success(
+        `Video ready! ${Math.round(result.duration_seconds)}s, ${result.photos_used} photos`,
+        { id: toastId, duration: 5000 }
+      );
     } catch (error) {
       console.error("Video generation error:", error);
       const friendlyError = getFriendlyErrorMessage(error);
@@ -105,65 +93,17 @@ export function useVideoGeneration() {
     window.open(videoUrl, "_blank");
   };
 
-  // Preview voice
-  const handlePreviewVoice = async (voiceId) => {
-    setIsPreviewingVoice(voiceId);
-
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
-
-      const response = await fetch(`${backendUrl}/api/preview-voice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voice_id: voiceId,
-          text: "Welcome to this beautiful home. This property features stunning craftsmanship and modern amenities."
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Voice preview failed");
-      }
-
-      const data = await response.json();
-
-      // Convert base64 to audio blob and play
-      const audioBytes = atob(data.audio_base64);
-      const audioArray = new Uint8Array(audioBytes.length);
-      for (let i = 0; i < audioBytes.length; i++) {
-        audioArray[i] = audioBytes.charCodeAt(i);
-      }
-      const audioBlob = new Blob([audioArray], { type: "audio/mpeg" });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      audio.play();
-
-      audio.onended = () => {
-        setIsPreviewingVoice(null);
-        URL.revokeObjectURL(audioUrl);
-      };
-    } catch (error) {
-      console.error("Voice preview failed:", error);
-      toast.error("Could not preview voice");
-      setIsPreviewingVoice(null);
-    }
-  };
-
   return {
     // State
     isGeneratingVideo,
     videoData,
     setVideoData,
-    includeVoiceover,
-    setIncludeVoiceover,
-    selectedVoice,
-    setSelectedVoice,
-    isPreviewingVoice,
+    secondsPerPhoto,
+    setSecondsPerPhoto,
 
     // Handlers
     handleGenerateVideo,
     handleDownloadVideo,
     handlePreviewVideo,
-    handlePreviewVoice,
   };
 }

@@ -6,7 +6,6 @@ import GeneratedSection from "@/components/listing-magic/GeneratedSection";
 import ListingLoader from "@/components/listing-magic/ListingLoader";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { formatGenerationTime, formatCost, copyToClipboard } from "@/libs/generate-api";
-import { VOICE_OPTIONS } from "@/config/elevenlabs";
 import toast from "react-hot-toast";
 
 /**
@@ -76,24 +75,18 @@ export default function DescriptionsTab({
   setScriptComplianceError,
   setFeaturesComplianceError,
 
-  // Video state and handlers
+  // Video state and handlers (silent videos only)
   isGeneratingVideo,
   videoData,
-  includeVoiceover,
-  setIncludeVoiceover,
-  selectedVoice,
-  setSelectedVoice,
-  isPreviewingVoice,
+  secondsPerPhoto,
+  setSecondsPerPhoto,
   handleGenerateVideo,
   handleDownloadVideo,
   handlePreviewVideo,
-  handlePreviewVoice,
 
   // Helpers
   formatFeaturesText,
 }) {
-  const voiceOptions = VOICE_OPTIONS;
-
   // Handle copy to clipboard
   const handleCopy = async (text) => {
     const success = await copyToClipboard(text);
@@ -400,86 +393,29 @@ export default function DescriptionsTab({
             complianceError={scriptComplianceError}
             onClearComplianceError={() => setScriptComplianceError(null)}
           >
-            {/* Video Options - integrated into script section */}
-            {!videoData && (
-              <div className="space-y-4">
-                {/* Voiceover Toggle */}
-                <label className="flex items-center gap-3 cursor-pointer">
+            {/* Video Duration Settings - only show when script is ready */}
+            {generationState.walkthruScript.data?.script && !videoData && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-medium text-base-content/70 whitespace-nowrap">
+                    Duration per photo:
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={includeVoiceover}
-                    onChange={(e) => setIncludeVoiceover(e.target.checked)}
-                    className="checkbox checkbox-primary checkbox-sm"
+                    type="range"
+                    min="2"
+                    max="10"
+                    step="0.5"
+                    value={secondsPerPhoto}
+                    onChange={(e) => setSecondsPerPhoto(parseFloat(e.target.value))}
+                    className="range range-primary range-xs flex-1"
                   />
-                  <span className="text-sm font-medium">Include professional voiceover</span>
-                  <span className="text-xs text-base-content/50">
-                    {includeVoiceover ? "(~2 minutes)" : "(5 sec/photo, instant)"}
+                  <span className="text-xs font-medium text-base-content/70 w-12 text-right">
+                    {secondsPerPhoto}s
                   </span>
-                </label>
-
-                {/* Voice Selection - only visible when voiceover enabled */}
-                <div className={`transition-all duration-300 overflow-hidden ${includeVoiceover ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"}`}>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-base-content/70">Select Voice</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {voiceOptions.map((voice) => (
-                        <button
-                          key={voice.id}
-                          onClick={() => setSelectedVoice(voice.id)}
-                          className={`relative p-3 border-2 rounded-lg text-left transition-all ${selectedVoice === voice.id
-                            ? "border-primary bg-primary/5"
-                            : "border-base-300 hover:border-base-content/30"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium text-sm">{voice.name}</span>
-                                <span className={`text-xs px-1.5 py-0.5 rounded ${voice.gender === "Female"
-                                  ? "bg-pink-100 text-pink-700"
-                                  : "bg-blue-100 text-blue-700"
-                                }`}>
-                                  {voice.gender === "Female" ? "F" : "M"}
-                                </span>
-                                {voice.age && (
-                                  <span className="text-xs text-base-content/40">{voice.age}</span>
-                                )}
-                              </div>
-                              <p className="text-xs text-base-content/60 mt-0.5">{voice.description}</p>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePreviewVoice(voice.id);
-                              }}
-                              disabled={isPreviewingVoice === voice.id}
-                              className="ml-1 p-1.5 text-base-content/40 hover:text-primary transition-colors"
-                              title="Preview voice"
-                            >
-                              {isPreviewingVoice === voice.id ? (
-                                <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-                                </svg>
-                              )}
-                            </button>
-                          </div>
-                          {selectedVoice === voice.id && (
-                            <div className="absolute top-1.5 right-1.5">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-primary">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </div>
+                <p className="text-xs text-base-content/50">
+                  Estimated video length: ~{Math.round(photoUrlsDesc.length * secondsPerPhoto)} seconds ({photoUrlsDesc.length} photos)
+                </p>
               </div>
             )}
           </GeneratedSection>
@@ -499,7 +435,7 @@ export default function DescriptionsTab({
                   <div>
                     <p className="font-medium text-sm">Video Ready!</p>
                     <p className="text-xs text-base-content/60">
-                      {Math.round(videoData.duration_seconds)}s {videoData.has_voiceover ? "with voiceover" : "(silent)"} • {videoData.photos_used} photos
+                      {Math.round(videoData.duration_seconds)}s • {videoData.photos_used} photos
                     </p>
                   </div>
                 </div>

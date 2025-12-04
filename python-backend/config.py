@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
     # Model Names
-    openai_model: str = Field(default="gpt-4.1", alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-4o", alias="OPENAI_MODEL")
     anthropic_model: str = Field(default="claude-sonnet-4-20250514", alias="ANTHROPIC_MODEL")
     gemini_model: str = Field(default="gemini-3-pro-latest", alias="GEMINI_MODEL")
 
@@ -106,11 +106,11 @@ class ModelConfig:
         }
 
 
-# GPT-4.1 Vision Configuration
+# GPT-4o Vision Configuration
 # Best for: Persuasive listing copy + automatic photo analysis
 # Pricing: $2.50/1M input, $10/1M output tokens
 GPT41_CONFIG = ModelConfig(
-    name="GPT-4.1 Vision",
+    name="GPT-4o Vision",
     provider="openai",
     model_id=settings.openai_model,
     task="public_remarks",

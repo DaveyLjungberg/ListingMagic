@@ -241,16 +241,15 @@ class OpenAIService:
             f"Photos: {len(property_details.photos)}, Max words: {max_words}"
         )
 
-        # Step 1: Analyze photos if enabled and photos provided
+        # Step 1: Skip separate photo analysis - photos are already sent with the generation request
+        # This saves ~60 seconds by avoiding duplicate vision processing
         extracted_features = None
         photos_analyzed = 0
 
-        if analyze_photos and property_details.photos:
-            try:
-                extracted_features = await self.analyze_photos(property_details.photos)
-                photos_analyzed = len(property_details.photos)
-            except Exception as e:
-                logger.warning(f"Photo analysis failed, continuing without: {e}")
+        # Note: We no longer call analyze_photos() separately because:
+        # 1. The photos are sent directly with the public remarks generation request
+        # 2. GPT-4o will analyze photos inline while generating the description
+        # 3. This eliminates duplicate API calls and cuts generation time in half
 
         # Step 2: Generate the listing description
         try:

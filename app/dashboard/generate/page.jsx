@@ -14,7 +14,6 @@ import {
 } from "@/libs/generate-api";
 import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing, updateListing } from "@/libs/listings";
-import GenerationProgress from "@/components/GenerationProgress";
 
 // Local hooks
 import {
@@ -27,11 +26,13 @@ import {
 
 // Local components
 import {
-  Header,
   TabNavigation,
   DescriptionsTab,
   MLSDataTab,
 } from "./components";
+
+// Dashboard Header
+import DashboardHeader from "@/components/DashboardHeader";
 
 /**
  * Generate Page - Main orchestrator component.
@@ -859,14 +860,17 @@ export default function GeneratePage() {
   // RENDER
   // =========================================================================
 
+  // Derive property address for header
+  const propertyAddress = descState.addressDesc
+    ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
+    : "";
+
   return (
     <main className="min-h-screen bg-base-100">
       {/* Header */}
-      <Header
+      <DashboardHeader
         user={user}
-        isGeneratingDesc={descState.isGeneratingDesc}
-        isGeneratingMLS={mlsState.isGeneratingMLS}
-        isWakeLockActive={wakeLock.isWakeLockActive}
+        propertyAddress={propertyAddress}
       />
 
       {/* Tab Navigation */}
@@ -877,18 +881,6 @@ export default function GeneratePage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Generation Progress Indicator */}
-        {(descState.isGeneratingDesc || mlsState.isGeneratingMLS) && (
-          <GenerationProgress
-            currentStep={descState.generationProgressDesc.step}
-            totalSteps={descState.generationProgressDesc.total}
-            currentOperation={wakeLock.currentOperationLabel}
-            estimatedTimeRemaining={wakeLock.getEstimatedTimeRemaining(descState.generationProgressDesc.step, descState.generationProgressDesc.total)}
-            isWakeLockActive={wakeLock.isWakeLockActive}
-            startTime={wakeLock.generationStartTime}
-          />
-        )}
-
         {activeTab === "descriptions" ? (
           <DescriptionsTab
             // User

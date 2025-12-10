@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
-import GeneratedSection from "@/components/listing-magic/GeneratedSection";
 import ListingLoader from "@/components/listing-magic/ListingLoader";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import NarrativeLoader from "@/components/NarrativeLoader";
+import ResultsTabs from "@/components/ResultsTabs";
 import { formatGenerationTime, formatCost, copyToClipboard } from "@/libs/generate-api";
 import toast from "react-hot-toast";
 
@@ -87,6 +89,9 @@ export default function DescriptionsTab({
   // Helpers
   formatFeaturesText,
 }) {
+  // Results tab state
+  const [resultsTab, setResultsTab] = useState("Public Remarks");
+
   // Handle copy to clipboard
   const handleCopy = async (text) => {
     const success = await copyToClipboard(text);
@@ -98,105 +103,78 @@ export default function DescriptionsTab({
     return success;
   };
 
-  // Button configurations
-  const publicRemarksButtons = [
-    {
-      label: "Regenerate",
-      variant: "ghost",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      ),
-      onClick: handleRegeneratePublicRemarks,
-      disabled: generationState.publicRemarks.status === "loading",
-    },
-  ];
+  // Handle refine routing based on active tab
+  const handleRefine = (tabName) => {
+    switch (tabName) {
+      case "Public Remarks":
+        // Prompt user for instruction or use default
+        const remarksInstruction = prompt("How would you like to refine the public remarks?");
+        if (remarksInstruction) handleRefineRemarks(remarksInstruction);
+        break;
+      case "Walk-thru Script":
+        const scriptInstruction = prompt("How would you like to refine the walk-thru script?");
+        if (scriptInstruction) handleRefineScript(scriptInstruction);
+        break;
+      case "Features Sheet":
+        const featuresInstruction = prompt("How would you like to refine the features?");
+        if (featuresInstruction) handleRefineFeatures(featuresInstruction);
+        break;
+    }
+  };
 
-  const walkthruButtons = [
-    {
-      label: "Regenerate",
-      variant: "ghost",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      ),
-      onClick: handleRegenerateWalkthruScript,
-      disabled: generationState.walkthruScript.status === "loading",
-    },
-    {
-      label: isGeneratingVideo ? "Generating Video..." : "Generate Video",
-      variant: "primary",
-      icon: isGeneratingVideo ? (
-        <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      ) : (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-        </svg>
-      ),
-      onClick: () => handleGenerateVideo(generationState.walkthruScript.data?.script, photoUrlsDesc, currentListingIdDesc),
-      disabled: isGeneratingVideo || !generationState.walkthruScript.data?.script || photoUrlsDesc.length === 0,
-    },
-  ];
-
-  const featuresButtons = [
-    {
-      label: "Regenerate",
-      variant: "ghost",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-        </svg>
-      ),
-      onClick: handleRegenerateFeatures,
-      disabled: generationState.features.status === "loading",
-    },
-  ];
+  // Compute results object for ResultsTabs
+  const results = {
+    publicRemarks: generationState.publicRemarks.data?.text || "",
+    walkthruScript: generationState.walkthruScript.data?.script || "",
+    features: formatFeaturesText(generationState.features.data) || "",
+  };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Left Sidebar - Photos & Address */}
-      <aside className="lg:col-span-4 space-y-6 relative z-10">
-        <div className="sticky top-40">
-          {/* Card wrapper for sidebar content */}
-          <div className="bg-base-100 border border-base-200 rounded-2xl p-6 space-y-6 shadow-sm">
-            {/* Listing Loader & Clear Button */}
-            <div className="flex justify-end gap-2 -mt-2 -mr-2 relative z-10">
-              <button
-                onClick={handleClearDescData}
-                disabled={isGeneratingDesc || !hasDescDataToClear}
-                className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
-                title="Clear all data and start fresh"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                </svg>
-                Clear
-              </button>
-              <ListingLoader
-                listingType="descriptions"
-                userId={user?.id}
-                onSelectListing={handleLoadDescListing}
-                disabled={isGeneratingDesc}
-              />
-            </div>
+    <>
+      {/* Narrative Loader Overlay */}
+      <NarrativeLoader 
+        isGenerating={isGeneratingDesc}
+        currentStep={generationProgressDesc.step}
+      />
+      
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Left Column - Inputs */}
+      <aside className="lg:col-span-4 space-y-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          {/* Listing Loader & Clear Button */}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleClearDescData}
+              disabled={isGeneratingDesc || !hasDescDataToClear}
+              className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
+              title="Clear all data and start fresh"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+              Clear
+            </button>
+            <ListingLoader
+              listingType="descriptions"
+              userId={user?.id}
+              onSelectListing={handleLoadDescListing}
+              disabled={isGeneratingDesc}
+            />
+          </div>
 
-            <ErrorBoundary section="Photo Uploader">
-              <PhotoUploader
-                ref={photoUploaderDescRef}
-                photos={photosDesc}
-                onPhotosChange={handlePhotosChangeDesc}
-                disabled={isGeneratingDesc}
-              />
-            </ErrorBoundary>
+          {/* Photo Uploader */}
+          <ErrorBoundary section="Photo Uploader">
+            <PhotoUploader
+              ref={photoUploaderDescRef}
+              photos={photosDesc}
+              onPhotosChange={handlePhotosChangeDesc}
+              disabled={isGeneratingDesc}
+            />
+          </ErrorBoundary>
 
-            {/* Photo Compliance Scanner */}
-            {photosDesc.length > 0 && (
-              <div className="border-t border-base-200 pt-4 space-y-3">
+          {/* Photo Compliance Scanner */}
+          {photosDesc.length > 0 && (
+            <div className="border-t border-slate-200 pt-4 space-y-3">
                 {/* Scan Button */}
                 {!complianceReportDesc && !scanningComplianceDesc && (
                   <button
@@ -283,227 +261,79 @@ export default function DescriptionsTab({
                     )}
                   </div>
                 )}
-              </div>
-            )}
-
-            <div className="border-t border-base-200 pt-6">
-              <AddressInput
-                ref={addressInputDescRef}
-                onAddressChange={handleAddressChangeDesc}
-                disabled={isGeneratingDesc}
-                hideTaxFields={true}
-                autoFetchTaxRecords={true}
-              />
             </div>
+          )}
 
-            {/* Generate All Button */}
-            <div className="border-t border-base-200 pt-6 space-y-3">
-              <button
-                onClick={handleGenerateAllDesc}
-                disabled={isGeneratingDesc || !isFormReadyDesc}
-                className="btn btn-primary w-full gap-2"
-              >
-                {isGeneratingDesc ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    <span className="flex flex-col items-start">
-                      <span className="text-sm">
-                        {generationProgressDesc.label || "Generating..."}
-                      </span>
-                      {generationProgressDesc.step > 0 && (
-                        <span className="text-xs opacity-70">
-                          Step {generationProgressDesc.step} of {generationProgressDesc.total}
-                        </span>
-                      )}
+          {/* Address Input */}
+          <div className="border-t border-slate-200 pt-4">
+            <AddressInput
+              ref={addressInputDescRef}
+              onAddressChange={handleAddressChangeDesc}
+              disabled={isGeneratingDesc}
+              hideTaxFields={true}
+              autoFetchTaxRecords={true}
+            />
+          </div>
+
+          {/* Generate All Button */}
+          <div className="border-t border-slate-200 pt-4">
+            <button
+              onClick={handleGenerateAllDesc}
+              disabled={isGeneratingDesc || !isFormReadyDesc}
+              className="btn btn-primary w-full gap-2"
+            >
+              {isGeneratingDesc ? (
+                <>
+                  <span className="loading loading-spinner loading-sm"></span>
+                  <span className="flex flex-col items-start">
+                    <span className="text-sm">
+                      {generationProgressDesc.label || "Generating..."}
                     </span>
-                  </>
-                ) : (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-                    </svg>
-                    Generate All Content
-                  </>
-                )}
-              </button>
-
-              {!isFormReadyDesc && (
-                <p className="text-xs text-base-content/40 text-center">
-                  Upload photos and enter address first
-                </p>
+                    {generationProgressDesc.step > 0 && (
+                      <span className="text-xs opacity-70">
+                        Step {generationProgressDesc.step} of {generationProgressDesc.total}
+                      </span>
+                    )}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                  </svg>
+                  Generate All Content
+                </>
               )}
-            </div>
+            </button>
+
+            {!isFormReadyDesc && (
+              <p className="text-xs text-base-content/40 text-center mt-3">
+                Upload photos and enter address first
+              </p>
+            )}
           </div>
         </div>
       </aside>
 
-      {/* Main Content - Generated Sections */}
+      {/* Right Column - Results */}
       <main className="lg:col-span-8 space-y-4">
-        <ErrorBoundary section="Public Remarks">
-          <GeneratedSection
-            title="Public Remarks"
-            description="250-word property description for MLS listing"
-            generatedText={generationState.publicRemarks.data?.text}
-            buttons={publicRemarksButtons}
-            isExpanded={expandedSections.publicRemarks}
-            onToggle={() => setExpandedSections(prev => ({ ...prev, publicRemarks: !prev.publicRemarks }))}
-            isLoading={generationState.publicRemarks.status === "loading"}
-            error={generationState.publicRemarks.error}
-            generationTime={
-              generationState.publicRemarks.data?.usage?.generation_time_ms
-                ? formatGenerationTime(generationState.publicRemarks.data.usage.generation_time_ms)
-                : null
-            }
-            cost={
-              generationState.publicRemarks.data?.usage?.cost_usd
-                ? formatCost(generationState.publicRemarks.data.usage.cost_usd)
-                : null
-            }
-            onCopy={handleCopy}
-            onRefine={handleRefineRemarks}
-            isRefining={isRefiningRemarks}
-            complianceError={remarksComplianceError}
-            onClearComplianceError={() => setRemarksComplianceError(null)}
-          />
-        </ErrorBoundary>
-
-        <ErrorBoundary section="Walk-thru Script">
-          <GeneratedSection
-            title="Walk-thru Script"
-            description="Video narration script for property tour"
-            generatedText={generationState.walkthruScript.data?.script}
-            buttons={walkthruButtons}
-            isExpanded={expandedSections.walkthruScript}
-            onToggle={() => setExpandedSections(prev => ({ ...prev, walkthruScript: !prev.walkthruScript }))}
-            isLoading={generationState.walkthruScript.status === "loading"}
-            error={generationState.walkthruScript.error}
-            generationTime={
-              generationState.walkthruScript.data?.usage?.generation_time_ms
-                ? formatGenerationTime(generationState.walkthruScript.data.usage.generation_time_ms)
-                : null
-            }
-            cost={
-              generationState.walkthruScript.data?.usage?.cost_usd
-                ? formatCost(generationState.walkthruScript.data.usage.cost_usd)
-                : null
-            }
-            onCopy={handleCopy}
-            onRefine={handleRefineScript}
-            isRefining={isRefiningScript}
-            complianceError={scriptComplianceError}
-            onClearComplianceError={() => setScriptComplianceError(null)}
-          >
-            {/* Video Duration Settings - only show when script is ready */}
-            {generationState.walkthruScript.data?.script && !videoData && (
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center gap-3">
-                  <label className="text-xs font-medium text-base-content/70 whitespace-nowrap">
-                    Duration per photo:
-                  </label>
-                  <input
-                    type="range"
-                    min="2"
-                    max="10"
-                    step="0.5"
-                    value={secondsPerPhoto}
-                    onChange={(e) => setSecondsPerPhoto(parseFloat(e.target.value))}
-                    className="range range-primary range-xs flex-1"
-                  />
-                  <span className="text-xs font-medium text-base-content/70 w-12 text-right">
-                    {secondsPerPhoto}s
-                  </span>
-                </div>
-                <p className="text-xs text-base-content/50">
-                  Estimated video length: ~{Math.round(photoUrlsDesc.length * secondsPerPhoto)} seconds ({photoUrlsDesc.length} photos)
-                </p>
-              </div>
-            )}
-          </GeneratedSection>
-        </ErrorBoundary>
-
-        {/* Video Download Links */}
-        {videoData && (
-          <div className="card bg-base-100 border border-success/30 animate-fade-in">
-            <div className="card-body py-4">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-success/10 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-success">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm">Video Ready!</p>
-                    <p className="text-xs text-base-content/60">
-                      {Math.round(videoData.duration_seconds)}s • {videoData.photos_used} photos
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleDownloadVideo(videoData.video_url, currentListingIdDesc)}
-                    className="btn btn-success btn-sm gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                    </svg>
-                    Download MP4
-                  </button>
-                  <button
-                    onClick={() => handlePreviewVideo(videoData.video_url)}
-                    className="btn btn-outline btn-sm gap-2"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                    </svg>
-                    Preview
-                  </button>
-                  {videoData.script_url && (
-                    <a
-                      href={videoData.script_url}
-                      download="walkthrough_script.txt"
-                      className="btn btn-ghost btn-sm gap-2"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                      </svg>
-                      Script
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <ErrorBoundary section="Features Sheet">
-          <GeneratedSection
-            title="Features Sheet"
-            description="Detailed property features and highlights"
-            generatedText={formatFeaturesText(generationState.features.data)}
-            buttons={featuresButtons}
-            isExpanded={expandedSections.features}
-            onToggle={() => setExpandedSections(prev => ({ ...prev, features: !prev.features }))}
-            isLoading={generationState.features.status === "loading"}
-            error={generationState.features.error}
-            generationTime={
-              generationState.features.data?.usage?.generation_time_ms
-                ? formatGenerationTime(generationState.features.data.usage.generation_time_ms)
-                : null
-            }
-            cost={
-              generationState.features.data?.usage?.cost_usd
-                ? formatCost(generationState.features.data.usage.cost_usd)
-                : null
-            }
-            onCopy={handleCopy}
-            onRefine={handleRefineFeatures}
-            isRefining={isRefiningFeatures}
-            complianceError={featuresComplianceError}
-            onClearComplianceError={() => setFeaturesComplianceError(null)}
-          />
-        </ErrorBoundary>
+        <ResultsTabs
+          activeTab={resultsTab}
+          setActiveTab={setResultsTab}
+          results={results}
+          onCopy={handleCopy}
+          onRefine={handleRefine}
+          videoData={videoData}
+          secondsPerPhoto={secondsPerPhoto}
+          setSecondsPerPhoto={setSecondsPerPhoto}
+          isGeneratingVideo={isGeneratingVideo}
+          onGenerateVideo={() => handleGenerateVideo(generationState.walkthruScript.data?.script, photoUrlsDesc, currentListingIdDesc)}
+          onPreviewVideo={handlePreviewVideo}
+          onDownloadVideo={(url) => handleDownloadVideo(url, currentListingIdDesc)}
+          photoUrlsDesc={photoUrlsDesc}
+        />
       </main>
     </div>
+    </>
   );
 }

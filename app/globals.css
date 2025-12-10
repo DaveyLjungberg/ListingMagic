@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap');
 
 @plugin "daisyui" {
   themes: light --default;
@@ -8,8 +8,14 @@
 @theme {
   /* Typography */
   --font-sans: "Inter", system-ui, sans-serif;
+  --font-serif: "Merriweather", ui-serif, Georgia, "Times New Roman", serif;
   --font-display: "Inter", "Satoshi", sans-serif;
   --font-mono: "SF Mono", Monaco, "Cascadia Code", monospace;
+
+  /* Luxury SaaS Theme Colors */
+  --color-primary: #4F46E5;
+  --color-secondary: #0D9488;
+  --color-surface: #F8FAFC;
 
   /* Primary Colors - Professional Navy */
   --color-primary-50: #f0f4f8;
@@ -108,6 +114,9 @@
 
 html,
 body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: #0f172a; /* slate-900 */
   scroll-behavior: smooth !important;
 }
 

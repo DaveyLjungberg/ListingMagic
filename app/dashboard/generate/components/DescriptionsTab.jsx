@@ -7,7 +7,7 @@ import ListingLoader from "@/components/listing-magic/ListingLoader";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NarrativeLoader from "@/components/NarrativeLoader";
 import ResultsTabs from "@/components/ResultsTabs";
-import { formatGenerationTime, formatCost, copyToClipboard } from "@/libs/generate-api";
+import { copyToClipboard } from "@/libs/generate-api";
 import toast from "react-hot-toast";
 
 /**
@@ -27,14 +27,14 @@ export default function DescriptionsTab({
   photoUrlsDesc,
 
   // Address state
-  addressDesc,
+  // addressDesc, // unused
 
   // Generation state
   isGeneratingDesc,
   generationProgressDesc,
   generationState,
-  expandedSections,
-  setExpandedSections,
+  // expandedSections, // unused
+  // setExpandedSections, // unused
 
   // Listing state
   currentListingIdDesc,
@@ -57,9 +57,9 @@ export default function DescriptionsTab({
 
   // Generation handlers
   handleGenerateAllDesc,
-  handleRegeneratePublicRemarks,
-  handleRegenerateWalkthruScript,
-  handleRegenerateFeatures,
+  // handleRegeneratePublicRemarks, // unused
+  // handleRegenerateWalkthruScript, // unused
+  // handleRegenerateFeatures, // unused
   handleLoadDescListing,
   handleClearDescData,
 
@@ -67,15 +67,15 @@ export default function DescriptionsTab({
   handleRefineRemarks,
   handleRefineScript,
   handleRefineFeatures,
-  isRefiningRemarks,
-  isRefiningScript,
-  isRefiningFeatures,
-  remarksComplianceError,
-  scriptComplianceError,
-  featuresComplianceError,
-  setRemarksComplianceError,
-  setScriptComplianceError,
-  setFeaturesComplianceError,
+  // isRefiningRemarks, // unused
+  // isRefiningScript, // unused
+  // isRefiningFeatures, // unused
+  // remarksComplianceError, // unused
+  // scriptComplianceError, // unused
+  // featuresComplianceError, // unused
+  // setRemarksComplianceError, // unused
+  // setScriptComplianceError, // unused
+  // setFeaturesComplianceError, // unused
 
   // Video state and handlers (silent videos only)
   isGeneratingVideo,
@@ -106,19 +106,22 @@ export default function DescriptionsTab({
   // Handle refine routing based on active tab
   const handleRefine = (tabName) => {
     switch (tabName) {
-      case "Public Remarks":
+      case "Public Remarks": {
         // Prompt user for instruction or use default
         const remarksInstruction = prompt("How would you like to refine the public remarks?");
         if (remarksInstruction) handleRefineRemarks(remarksInstruction);
         break;
-      case "Walk-thru Script":
+      }
+      case "Walk-thru Script": {
         const scriptInstruction = prompt("How would you like to refine the walk-thru script?");
         if (scriptInstruction) handleRefineScript(scriptInstruction);
         break;
-      case "Features Sheet":
+      }
+      case "Features Sheet": {
         const featuresInstruction = prompt("How would you like to refine the features?");
         if (featuresInstruction) handleRefineFeatures(featuresInstruction);
         break;
+      }
     }
   };
 

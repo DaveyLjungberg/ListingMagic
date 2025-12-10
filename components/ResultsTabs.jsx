@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ShieldCheck, Copy, Sparkles, Play, Download } from "lucide-react";
 
 /**

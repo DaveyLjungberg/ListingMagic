@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Camera, X, UploadCloud } from "lucide-react";
 
 const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, photos = [] }, ref) => {
@@ -163,7 +163,7 @@ const PhotoUploader = forwardRef(({ onPhotosChange, disabled = false, photos = [
                   {isDragging ? "Drop photos here" : "Upload Property Photos"}
                 </h3>
                 <p className="text-base text-primary-muted mb-1">
-                  Drag & drop 20-30 photos. We'll analyze lighting and features instantly.
+                  Drag & drop 20-30 photos. We&apos;ll analyze lighting and features instantly.
                 </p>
                 <p className="text-sm text-base-content/50">
                   PNG, JPG, WEBP up to 10MB each • Click anywhere to browse

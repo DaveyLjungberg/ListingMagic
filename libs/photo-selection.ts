@@ -242,6 +242,135 @@ export function selectBestPhotos(
 }
 
 // =============================================================================
+// Photo Ordering for Walkthrough Videos
+// =============================================================================
+
+/**
+ * Tour order priority for video walkthroughs
+ */
+const TOUR_ORDER: Record<string, number> = {
+  EXTERIOR: 1,
+  LIVING: 2,
+  KITCHEN: 3,
+  DINING: 4,
+  SPECIAL: 5,
+  BEDROOM: 6,
+  BATHROOM: 7,
+  UTILITY: 8,
+  GARAGE: 9,
+  OUTDOOR: 10,
+  DETAIL: 11,
+  UNKNOWN: 12,
+};
+
+/**
+ * Order photos in a logical walkthrough sequence
+ * Tries to categorize photos with AI, but falls back to original order on timeout/error
+ * 
+ * @param photoUrls - All photo URLs
+ * @param timeoutMs - Timeout for categorization (default 15s)
+ * @returns Photo URLs ordered for walkthrough, or original order on failure
+ */
+export async function orderPhotosForWalkthrough(
+  photoUrls: string[],
+  timeoutMs: number = 15000
+): Promise<string[]> {
+  // If 5 or fewer photos, no need to reorder
+  if (photoUrls.length <= 5) {
+    console.log(`[PhotoOrdering] ${photoUrls.length} photos - keeping original order`);
+    return photoUrls;
+  }
+
+  console.log(`[PhotoOrdering] Attempting to order ${photoUrls.length} photos for walkthrough...`);
+
+  try {
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const categories = await categorizePhotosWithTimeout(photoUrls, controller.signal);
+      clearTimeout(timeoutId);
+
+      // Sort by tour order
+      const sorted = [...categories].sort((a, b) => {
+        const orderA = TOUR_ORDER[a.category] || 99;
+        const orderB = TOUR_ORDER[b.category] || 99;
+        
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        
+        // Within same category, sort by priority (1 = highest)
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+        
+        // Finally, maintain original index
+        return a.index - b.index;
+      });
+
+      const orderedUrls = sorted.map(cat => cat.url);
+      
+      console.log(`[PhotoOrdering] Successfully ordered photos for walkthrough`);
+      
+      return orderedUrls;
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.warn(`[PhotoOrdering] Categorization timed out after ${timeoutMs}ms - using original order`);
+      } else {
+        console.warn(`[PhotoOrdering] Categorization failed:`, error.message, `- using original order`);
+      }
+      
+      return photoUrls;
+    }
+  } catch (error) {
+    console.error(`[PhotoOrdering] Unexpected error:`, error);
+    return photoUrls;
+  }
+}
+
+/**
+ * Call categorization API with abort signal support
+ */
+async function categorizePhotosWithTimeout(
+  photoUrls: string[],
+  signal: AbortSignal
+): Promise<PhotoCategory[]> {
+  const backendUrl =
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://listingmagic-production.up.railway.app";
+
+  const response = await fetch(`${backendUrl}/api/categorize-photos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      photo_urls: photoUrls,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Photo categorization failed");
+  }
+
+  const data: PhotoCategorizationResponse = await response.json();
+
+  if (!data.success) {
+    throw new Error(data.error || "Photo categorization failed");
+  }
+
+  // Add URLs to categories
+  return data.categories.map((cat) => ({
+    ...cat,
+    url: photoUrls[cat.index],
+  }));
+}
+
+// =============================================================================
 // Main Export: Intelligent Photo Selection
 // =============================================================================
 

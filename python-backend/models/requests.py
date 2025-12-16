@@ -113,19 +113,6 @@ class PublicRemarksRequest(BaseModel):
     )
 
 
-class WalkthruScriptRequest(BaseModel):
-    """Request for generating video walk-thru script."""
-    property_details: PropertyDetailsRequest
-    duration_seconds: int = Field(default=120, ge=30, le=300)
-    style: str = Field(default="conversational", description="Narration style")
-    include_intro: bool = Field(default=True)
-    include_outro: bool = Field(default=True)
-    pacing: str = Field(default="moderate", description="Script pacing: slow, moderate, fast")
-
-    # Optional: Use existing public remarks for context
-    public_remarks: Optional[str] = Field(None, description="Previously generated listing text")
-
-
 class FeaturesRequest(BaseModel):
     """Request for generating features list."""
     property_details: PropertyDetailsRequest

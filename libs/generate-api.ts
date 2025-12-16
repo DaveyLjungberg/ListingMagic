@@ -24,6 +24,7 @@ import {
   selectPhotosIntelligently,
   categorizePhotos,
   selectBestPhotos,
+  orderPhotosForWalkthrough,
   type PhotoCategory,
 } from "./photo-selection";
 // ElevenLabs voiceover removed - videos are now silent
@@ -34,6 +35,7 @@ export {
   selectPhotosIntelligently,
   categorizePhotos,
   selectBestPhotos,
+  orderPhotosForWalkthrough,
   type PhotoCategory,
 };
 
@@ -220,10 +222,12 @@ function getPhotoUrl(photo: PhotoData): string | null {
  * Convert PhotoData array to ImageInput array for API requests
  * Uses intelligent photo selection when more than maxImages are provided
  * Handles both File objects (fresh uploads) and URLs (loaded listings)
+ * @param onProgress - Optional callback (current, total) called after each photo is processed
  */
 export async function convertPhotosToImageInputs(
   photos: PhotoData[],
-  photoUrls?: string[] // Optional: pre-uploaded URLs for intelligent selection
+  photoUrls?: string[], // Optional: pre-uploaded URLs for intelligent selection
+  onProgress?: (current: number, total: number) => void
 ): Promise<ImageInput[]> {
   // If we have more photos than the limit and have URLs, use intelligent selection
   if (photos.length > IMAGE_CONFIG.maxImages && photoUrls && photoUrls.length > 0) {
@@ -251,7 +255,7 @@ export async function convertPhotosToImageInputs(
       );
 
       // Process only the selected photos
-      return await processPhotosToImageInputs(selectedPhotos, selectedUrls);
+      return await processPhotosToImageInputs(selectedPhotos, selectedUrls, onProgress);
     } catch (error) {
       console.error("[convertPhotosToImageInputs] Intelligent selection failed, falling back to first N:", error);
       // Fall through to standard processing
@@ -267,7 +271,7 @@ export async function convertPhotosToImageInputs(
     );
   }
 
-  return await processPhotosToImageInputs(photosToProcess);
+  return await processPhotosToImageInputs(photosToProcess, undefined, onProgress);
 }
 
 /**
@@ -275,9 +279,11 @@ export async function convertPhotosToImageInputs(
  */
 async function processPhotosToImageInputs(
   photos: PhotoData[],
-  selectedUrls?: string[]
+  selectedUrls?: string[],
+  onProgress?: (current: number, total: number) => void
 ): Promise<ImageInput[]> {
   const imageInputs: ImageInput[] = [];
+  const totalPhotos = photos.length;
 
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
@@ -304,6 +310,11 @@ async function processPhotosToImageInputs(
         filename: photo.name,
         content_type: IMAGE_CONFIG.outputType,
       });
+      
+      // Call progress callback after each photo is processed
+      if (onProgress) {
+        onProgress(i + 1, totalPhotos);
+      }
     } catch (error) {
       console.error(`Failed to convert photo ${photo.name}:`, error);
     }
@@ -443,41 +454,6 @@ export async function generatePublicRemarks(
 }
 
 /**
- * Generate walk-thru script
- */
-export async function generateWalkthruScript(
-  propertyDetails: PropertyDetails,
-  publicRemarks?: string
-): Promise<WalkthruScriptResponse> {
-  const request: WalkthruScriptRequest = {
-    property_details: propertyDetails,
-    duration_seconds: 120,
-    style: "conversational",
-    include_intro: true,
-    include_outro: true,
-    public_remarks: publicRemarks,
-  };
-
-  const response = await fetchWithTimeout(
-    "/api/generate-walkthru-script",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    },
-    API_TIMEOUTS.generation
-  );
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || "Failed to generate walk-thru script");
-  }
-
-  return data;
-}
-
-/**
  * Generate features list
  */
 export async function generateFeatures(
@@ -515,11 +491,9 @@ export async function generateFeatures(
 
 export interface GenerateAllResult {
   publicRemarks: PublicRemarksResponse | null;
-  walkthruScript: WalkthruScriptResponse | null;
   features: FeaturesResponse | null;
   errors: {
     publicRemarks?: string;
-    walkthruScript?: string;
     features?: string;
   };
 }
@@ -543,16 +517,14 @@ export async function generateAllContent(
 
   const result: GenerateAllResult = {
     publicRemarks: null,
-    walkthruScript: null,
     features: null,
     errors: {},
   };
 
-  // Run all three generations in parallel
-  const [publicRemarksResult, walkthruResult, featuresResult] =
+  // Run all generations in parallel
+  const [publicRemarksResult, featuresResult] =
     await Promise.allSettled([
       generatePublicRemarks(propertyDetails),
-      generateWalkthruScript(propertyDetails),
       generateFeatures(propertyDetails),
     ]);
 
@@ -562,14 +534,6 @@ export async function generateAllContent(
   } else {
     result.errors.publicRemarks =
       publicRemarksResult.reason?.message || "Failed to generate public remarks";
-  }
-
-  // Process walk-thru script result
-  if (walkthruResult.status === "fulfilled") {
-    result.walkthruScript = walkthruResult.value;
-  } else {
-    result.errors.walkthruScript =
-      walkthruResult.reason?.message || "Failed to generate walk-thru script";
   }
 
   // Process features result
@@ -610,51 +574,6 @@ Don't miss this exceptional opportunity to own a truly move-in ready home in a p
   },
   generated_at: new Date().toISOString(),
   request_id: "mock_pr_001",
-};
-
-export const MOCK_WALKTHRU_SCRIPT: WalkthruScriptResponse = {
-  success: true,
-  script: `Welcome to your next home! Let me take you on a tour of this beautiful property.
-
-[INTRO - 15 seconds]
-As we approach, notice the stunning curb appeal with its manicured landscaping and inviting front porch. This home truly makes a wonderful first impression.
-
-[LIVING AREA - 25 seconds]
-Stepping through the front door, you're immediately greeted by soaring ceilings and an abundance of natural light. The open floor plan creates a seamless flow between the living, dining, and kitchen areas - perfect for both everyday living and entertaining.
-
-[KITCHEN - 25 seconds]
-The heart of the home is this gorgeous gourmet kitchen. You'll love the granite countertops, stainless steel appliances, and this generous center island. There's plenty of storage in these custom cabinetry and a walk-in pantry for all your culinary needs.
-
-[PRIMARY SUITE - 20 seconds]
-The primary suite is your private retreat. Notice the tray ceiling and large windows that flood the room with light. The ensuite bathroom features dual vanities, a soaking tub, and a separate walk-in shower.
-
-[BACKYARD - 20 seconds]
-And finally, step outside to your private backyard oasis. The covered patio is ideal for outdoor dining, and the landscaped yard offers plenty of space for relaxation or play.
-
-[OUTRO - 15 seconds]
-This exceptional home offers everything you've been looking for. Contact us today to schedule your private showing!`,
-  word_count: 243,
-  estimated_duration_seconds: 120,
-  sections: [
-    { name: "intro", content: "Welcome and curb appeal introduction" },
-    { name: "living", content: "Living area tour" },
-    { name: "kitchen", content: "Kitchen features" },
-    { name: "primary", content: "Primary suite" },
-    { name: "backyard", content: "Outdoor spaces" },
-    { name: "outro", content: "Call to action" },
-  ],
-  usage: {
-    input_tokens: 800,
-    output_tokens: 450,
-    total_tokens: 1250,
-    cost_usd: 0.038,
-    generation_time_ms: 2800,
-    model_used: "claude-sonnet-4-20250514",
-    provider: "anthropic",
-    is_fallback: false,
-  },
-  generated_at: new Date().toISOString(),
-  request_id: "mock_ws_001",
 };
 
 export const MOCK_FEATURES: FeaturesResponse = {
@@ -741,7 +660,6 @@ export async function generateAllContentMock(): Promise<GenerateAllResult> {
 
   return {
     publicRemarks: MOCK_PUBLIC_REMARKS,
-    walkthruScript: MOCK_WALKTHRU_SCRIPT,
     features: MOCK_FEATURES,
     errors: {},
   };
@@ -1081,23 +999,24 @@ export interface VideoGenerationResponse {
 
 /**
  * Generate silent walkthrough video from photos
- * @param script - Walk-thru script text (saved as text file for reference)
  * @param photoUrls - Array of public URLs to photos
  * @param listingId - Listing ID for storage path
- * @param secondsPerPhoto - Duration per photo (default 5.0)
+ * @param secondsPerPhoto - Duration per photo (default 4.0)
  * @param onProgress - Optional callback for progress updates
  */
 export async function generateWalkthroughVideo(
-  script: string,
   photoUrls: string[],
   listingId: string,
-  secondsPerPhoto: number = 5.0,
+  secondsPerPhoto: number = 4.0,
   onProgress?: (message: string) => void
 ): Promise<VideoGenerationResponse> {
   try {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
 
     onProgress?.("Preparing video generation...");
+
+    // Fair Housing-safe placeholder script for silent video (backend requires script field)
+    const placeholderScript = "This property walkthrough video showcases the home's features through a visual tour of professionally photographed spaces.";
 
     const response = await fetchWithTimeout(
       `${backendUrl}/api/generate-video`,
@@ -1107,7 +1026,7 @@ export async function generateWalkthroughVideo(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          script,
+          script: placeholderScript,
           photo_urls: photoUrls,
           listing_id: listingId,
           seconds_per_photo: secondsPerPhoto,

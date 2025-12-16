@@ -11,15 +11,10 @@ import { generateWalkthroughVideo, getFriendlyErrorMessage } from "@/libs/genera
 export function useVideoGeneration() {
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoData, setVideoData] = useState(null);
-  const [secondsPerPhoto, setSecondsPerPhoto] = useState(5.0);
+  const [secondsPerPhoto, setSecondsPerPhoto] = useState(4.0);
 
-  // Generate silent video from walk-thru script and photos
-  const handleGenerateVideo = async (script, photoUrlsDesc, currentListingIdDesc) => {
-    if (!script) {
-      toast.error("Please generate a walk-thru script first");
-      return;
-    }
-
+  // Generate silent video from photos
+  const handleGenerateVideo = async (photoUrlsDesc, currentListingIdDesc) => {
     if (!photoUrlsDesc || photoUrlsDesc.length === 0) {
       toast.error("No photos available for video generation");
       return;
@@ -37,7 +32,6 @@ export function useVideoGeneration() {
 
     try {
       const result = await generateWalkthroughVideo(
-        script,
         photoUrlsDesc,
         currentListingIdDesc,
         secondsPerPhoto,

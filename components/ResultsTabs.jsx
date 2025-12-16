@@ -12,6 +12,8 @@ export default function ResultsTabs({
   results,
   onCopy,
   onRefine,
+  // Features loading state
+  isGeneratingFeatures = false,
   // Video props
   videoData = null,
   secondsPerPhoto = 4,
@@ -22,15 +24,13 @@ export default function ResultsTabs({
   onDownloadVideo = () => {},
   photoUrlsDesc = [],
 }) {
-  const tabs = ["Public Remarks", "Walk-thru Script", "Features Sheet", "Video Tour"];
+  const tabs = ["Public Remarks", "Features Sheet", "Video Tour"];
 
   // Get active content based on selected tab
   const getActiveContent = () => {
     switch (activeTab) {
       case "Public Remarks":
         return results.publicRemarks;
-      case "Walk-thru Script":
-        return results.walkthruScript;
       case "Features Sheet":
         return results.features;
       default:
@@ -98,99 +98,102 @@ export default function ResultsTabs({
         {/* Video Tour Content */}
         {isVideoTab ? (
           <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-4">
-            {/* Duration Slider */}
-            {!videoData && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-slate-900">Video Settings</h4>
-                <div className="flex items-center gap-3">
-                  <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
-                    Duration per photo:
-                  </label>
-                  <input
-                    type="range"
-                    min="2"
-                    max="10"
-                    step="0.5"
-                    value={secondsPerPhoto}
-                    onChange={(e) => setSecondsPerPhoto(parseFloat(e.target.value))}
-                    className="range range-primary range-xs flex-1"
-                  />
-                  <span className="text-xs font-medium text-slate-700 w-12 text-right">
-                    {secondsPerPhoto}s
-                  </span>
+            {/* Generating State */}
+            {isGeneratingVideo && !videoData && (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center">
+                    <Play className="w-8 h-8 text-indigo-600" />
+                  </div>
+                  <svg className="absolute inset-0 w-16 h-16 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Estimated video length: ~{Math.round(photoUrlsDesc.length * secondsPerPhoto)} seconds ({photoUrlsDesc.length} photos)
-                </p>
+                <div className="text-center">
+                  <h4 className="text-base font-semibold text-slate-900 mb-1">Generating Video...</h4>
+                  <p className="text-sm text-slate-500">Creating walkthrough from {photoUrlsDesc.length} photos</p>
+                  <p className="text-xs text-slate-400 mt-1">This may take 30-60 seconds</p>
+                </div>
               </div>
             )}
 
-            {/* Generate Button */}
-            {!videoData && (
-              <button
-                onClick={onGenerateVideo}
-                disabled={isGeneratingVideo}
-                className="btn btn-primary w-full gap-2"
-              >
-                {isGeneratingVideo ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Generating Video...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Generate Video
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* Video Preview & Download */}
+            {/* Video Ready - Preview & Download */}
             {videoData && videoData.video_url && (
               <div className="space-y-4">
+                {/* Video Preview */}
+                <div className="rounded-lg overflow-hidden border border-slate-200 bg-black">
+                  <video 
+                    controls 
+                    className="w-full"
+                    src={videoData.video_url}
+                    poster=""
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+
+                {/* Video Info & Actions */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Video Ready</h4>
+                    <h4 className="text-sm font-semibold text-slate-900">Walkthrough Video Ready</h4>
                     <p className="text-xs text-slate-500">
                       {Math.round(videoData.duration_seconds || 0)}s • {videoData.photos_used || 0} photos
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onDownloadVideo(videoData.video_url)}
-                      className="btn btn-success btn-sm gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
-                    <button
-                      onClick={() => onPreviewVideo(videoData.video_url)}
-                      className="btn btn-outline btn-sm gap-2"
-                    >
-                      <Play className="w-4 h-4" />
-                      Preview
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => onDownloadVideo(videoData.video_url)}
+                    className="btn btn-primary btn-sm gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Video
+                  </button>
                 </div>
-                
-                <video 
-                  controls 
-                  className="w-full rounded-lg border border-slate-200"
-                  src={videoData.video_url}
-                >
-                  Your browser does not support the video tag.
-                </video>
+              </div>
+            )}
+
+            {/* Waiting State (before generation starts) */}
+            {!isGeneratingVideo && !videoData && (
+              <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
+                  <Play className="w-8 h-8 text-slate-400" />
+                </div>
+                <div className="text-center">
+                  <h4 className="text-sm font-medium text-slate-600 mb-1">Video will generate automatically</h4>
+                  <p className="text-xs text-slate-400">After property features are complete</p>
+                </div>
               </div>
             )}
           </div>
         ) : (
           /* Text Content for other tabs */
           <>
-            {hasContent ? (
+            {/* Features Tab - Show skeleton if generating */}
+            {activeTab === "Features Sheet" && isGeneratingFeatures ? (
+              <div className="space-y-3 animate-pulse">
+                <p className="text-sm text-slate-400 mb-4">Extracting property features...</p>
+                <div className="space-y-3">
+                  {/* Category headers and items skeleton */}
+                  <div className="h-4 bg-slate-200 rounded w-32" />
+                  <div className="pl-4 space-y-2">
+                    <div className="h-3 bg-slate-100 rounded w-full" />
+                    <div className="h-3 bg-slate-100 rounded w-11/12" />
+                    <div className="h-3 bg-slate-100 rounded w-10/12" />
+                  </div>
+                  <div className="h-4 bg-slate-200 rounded w-40 mt-4" />
+                  <div className="pl-4 space-y-2">
+                    <div className="h-3 bg-slate-100 rounded w-full" />
+                    <div className="h-3 bg-slate-100 rounded w-9/12" />
+                  </div>
+                  <div className="h-4 bg-slate-200 rounded w-36 mt-4" />
+                  <div className="pl-4 space-y-2">
+                    <div className="h-3 bg-slate-100 rounded w-full" />
+                    <div className="h-3 bg-slate-100 rounded w-10/12" />
+                    <div className="h-3 bg-slate-100 rounded w-11/12" />
+                  </div>
+                </div>
+              </div>
+            ) : hasContent ? (
               <div className="prose prose-slate max-w-none">
                 <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                   {activeContent}

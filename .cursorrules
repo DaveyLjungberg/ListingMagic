@@ -1,212 +1,170 @@
-# ShipFast SaaS Boilerplate - Cursor Rules
+# QuickList - Cursor Rules
 
-You are an expert full-stack developer working on ShipFast, a Next.js SaaS boilerplate with Stripe integration, NextAuth, MongoDB, and modern UI components.
+You are an expert full-stack developer working on **QuickList**, a SaaS that generates AI-powered real estate listing content in 60-90 seconds.
 
 ## Project Overview
-- **Tech Stack**: Next.js 15, React 19, NextAuth v5 (beta), MongoDB, Mongoose, Stripe, Tailwind CSS, DaisyUI, Resend
-- **Architecture**: App Router, API Routes, Server Components, Client Components
-- **Authentication**: NextAuth with Google OAuth and Email providers
-- **Database**: MongoDB with Mongoose ODM
-- **Payments**: Stripe Checkout and Customer Portal
-- **Email**: Resend for transactional emails
-- **UI**: Tailwind CSS with DaisyUI components
 
-## Code Style & Conventions
+**What QuickList Does**: Real estate agents upload property photos → AI generates MLS-compliant descriptions, data extraction, and silent video slideshows.
 
-### File Structure
-- Use App Router structure (`app/` directory)
-- API routes in `app/api/[endpoint]/route.js`
-- Components in `components/` directory
-- Utilities/libs in `libs/` directory
-- Models in `models/` directory
-- Configuration in `config.js`
+**Tech Stack**:
+- **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS (Vercel)
+- **Backend**: Python FastAPI (Railway)
+- **Database**: Supabase PostgreSQL + Auth + Storage
+- **AI**: GPT-4o (primary), Gemini Pro (secondary)
 
-### Naming Conventions
-- **Components**: PascalCase (e.g., `ButtonCheckout.js`, `HeaderBlog.js`)
-- **API Routes**: kebab-case directories with `route.js` files
-- **Utilities**: camelCase (e.g., `connectMongo`, `createCheckout`)
-- **Constants**: UPPER_SNAKE_CASE
-- **Variables**: camelCase
+**URLs**:
+- Frontend: https://listing-magic.vercel.app
+- Backend: https://listingmagic-production.up.railway.app
+- Database: https://vbfwcemtkgymygccgffl.supabase.co
 
-### Component Patterns
-- Use `"use client"` directive for client components
-- Import config from `@/config` for app-wide settings
-- Use absolute imports with `@/` prefix
-- Export default for single-purpose components
-- Include descriptive comments for complex components
+## CRITICAL: Fair Housing Compliance
 
-### API Route Structure
-```javascript
-import { NextResponse } from "next/server";
-import { auth } from "@/libs/auth";
+ALL AI-generated descriptions MUST follow Fair Housing rules:
 
-export async function POST(req) {
-  try {
-    const session = await auth();
-    const body = await req.json();
-    
-    // Validation
-    if (!body.requiredField) {
-      return NextResponse.json(
-        { error: "Required field is missing" },
-        { status: 400 }
-      );
-    }
-    
-    // Logic here
-    
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { error: "Something went wrong" },
-      { status: 500 }
-    );
-  }
-}
+**PROHIBITED**:
+- "Step inside", "Welcome to", "Come see" (imperative language)
+- "you", "your", "you'll" (second-person pronouns)
+- "Perfect for families", "Ideal for retirees" (buyer-specific)
+- "Master bedroom" (use "Primary bedroom")
+
+**REQUIRED**:
+- Third-person only: "This residence features..."
+- Factual descriptions only
+- Objective statements
+
+## Code Structure
+
+```
+listing-magic/
+├── app/                          # Next.js App Router
+│   ├── dashboard/generate/       # Main generation page
+│   │   ├── components/           # DescriptionsTab, MLSDataTab, ResultsTabs
+│   │   ├── hooks/                # useDescriptionsState, useMLSState, useVideoGeneration
+│   │   └── page.jsx              # Main orchestrator
+├── libs/
+│   ├── generate-api.ts           # Backend API client
+│   └── supabase.ts               # Supabase client
+├── python-backend/               # FastAPI backend
+│   ├── endpoints/                # API endpoints
+│   ├── services/                 # AI provider integrations (openai, gemini)
+│   ├── compliance/               # Fair Housing validation
+│   └── utils/                    # Prompts, helpers
+└── .agent-workspace/             # Agent memory (READ THIS FIRST)
 ```
 
-### Database Patterns
-- Use Mongoose for MongoDB operations
-- Always call `connectMongo()` before database operations
-- Use schema validation and plugins
-- Include timestamps in schemas
-- Use the `toJSON` plugin for clean API responses
+## Generation Flow (Current)
 
-### Authentication
-- Use `auth()` from `@/libs/auth` to get session
-- Check authentication in API routes when needed
-- Use `session?.user?.id` to access user ID
-- Redirect unauthenticated users to `config.auth.loginUrl`
+1. **Upload Photos** → Supabase Storage
+2. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
+3. **Generate Public Remarks** → GPT-4o (overlay closes when done)
+4. **Background Tasks** (sequential):
+   - Features List → Gemini
+   - Video Generation → FFmpeg (silent slideshow)
+   - MLS Extraction → Gemini
 
-### Stripe Integration
-- Use `createCheckout()` from `@/libs/stripe` for payments
-- Handle webhooks in `app/api/webhook/stripe/route.js`
-- Store `customerId` and `priceId` in user model
-- Use `hasAccess` field to control feature access
+**Result Tabs**: Public Remarks | Features Sheet | Video Tour
 
-## Best Practices
+## Coding Standards
 
-### Error Handling
-- Always wrap async operations in try-catch blocks
-- Return appropriate HTTP status codes
-- Log errors to console for debugging
-- Provide user-friendly error messages
-
-### Security
-- Validate all inputs in API routes
-- Use environment variables for sensitive data
-- Implement proper CORS headers where needed
-- Sanitize user inputs before database operations
-
-### Performance
-- Use Server Components by default
-- Only use Client Components when necessary (interactivity, hooks)
-- Implement proper loading states
-- Use Next.js Image component for optimized images
-- Leverage MongoDB indexes for queries
-
-### UI/UX
-- Use DaisyUI classes for consistent styling
-- Implement loading states with DaisyUI spinners
-- Use semantic HTML elements
-- Ensure responsive design with Tailwind breakpoints
-- Include proper accessibility attributes
-
-## Environment Variables
-Required environment variables:
-- `NEXTAUTH_SECRET`
-- `NEXTAUTH_URL`
-- `MONGODB_URI`
-- `STRIPE_PUBLIC_KEY`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `GOOGLE_ID` (optional)
-- `GOOGLE_SECRET` (optional)
-- `RESEND_API_KEY`
-
-## Common Patterns
-
-### Client Component with API Call
+### Frontend Components
 ```javascript
-"use client";
-import { useState } from "react";
-import apiClient from "@/libs/api";
+"use client";  // Only if needed for interactivity
 
-const ComponentName = () => {
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+import { supabase } from "@/libs/supabase";
+
+const ComponentName = ({ prop }) => {
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const handleAction = async () => {
     setIsLoading(true);
     try {
-      const response = await apiClient.post("/endpoint", data);
-      // Handle success
+      // Action
+      toast.success("Success!");
     } catch (error) {
-      console.error(error);
+      toast.error(error.message || "Something went wrong");
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   return (
-    <button 
-      className="btn btn-primary"
+    <button
       onClick={handleAction}
       disabled={isLoading}
+      className="btn btn-primary"
     >
-      {isLoading ? (
-        <span className="loading loading-spinner loading-xs"></span>
-      ) : (
-        "Action"
-      )}
+      {isLoading ? "Loading..." : "Action"}
     </button>
   );
 };
+
+export default ComponentName;
 ```
 
-### Mongoose Model
-```javascript
-import mongoose from "mongoose";
-import toJSON from "./plugins/toJSON";
+### Backend Endpoints
+```python
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-const schema = mongoose.Schema(
-  {
-    field: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-  },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-  }
-);
+router = APIRouter()
 
-schema.plugin(toJSON);
+@router.post("/api/endpoint")
+async def endpoint_name(request: RequestModel):
+    try:
+        # Validation
+        if not request.required_field:
+            raise HTTPException(status_code=400, detail="Required")
 
-export default mongoose.models.ModelName || mongoose.model("ModelName", schema);
+        # Business logic
+        result = await service.process(request)
+
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal error")
 ```
 
-## Configuration
-- All app configuration is centralized in `config.js`
-- Use `config.appName`, `config.domainName`, etc. throughout the app
-- Stripe plans are defined in `config.stripe.plans`
-- Email settings in `config.resend`
-- Theme settings in `config.colors`
+## Before Starting Any Task
 
-## Testing & Development
-- Use `npm run dev` for development
-- Use `npm run build` for production builds
-- Follow conventional commit messages
-- Test Stripe webhooks using Stripe CLI
-- Use MongoDB Compass for database inspection
+1. **Read `CLAUDE.md`** - Master instructions
+2. **Check `.agent-workspace/context/current-sprint.md`** - What's the focus?
+3. **Check `.agent-workspace/logs/bugs/`** - Has this been solved before?
+4. **Check `.agent-workspace/knowledge/error-solutions.md`** - Quick fixes
 
-## Deployment Considerations
-- Set all required environment variables
-- Configure Stripe webhooks endpoint
-- Set up MongoDB Atlas connection
-- Configure domain for NextAuth
-- Set up Resend domain for emails
+## After Completing Any Task
 
-Remember to always check the existing codebase patterns before implementing new features to maintain consistency. 
+1. **Bug fixed?** → Add to `.agent-workspace/logs/bugs/`
+2. **New pattern?** → Add to `.agent-workspace/knowledge/`
+3. **Architecture decision?** → Update `context/tech-decisions.md`
+
+## Key Files Reference
+
+| What | Where |
+|------|-------|
+| Main generation UI | `app/dashboard/generate/components/DescriptionsTab.jsx` |
+| MLS data display | `app/dashboard/generate/components/MLSDataTab.jsx` |
+| Backend API client | `libs/generate-api.ts` |
+| AI prompts | `python-backend/utils/prompt_templates.py` |
+| Fair Housing rules | `python-backend/compliance/fair_housing.py` |
+| Agent memory | `.agent-workspace/` |
+
+## Known Issues (Don't Re-Debug)
+
+- ✅ Slow generation → Use GPT-4o not GPT-4.1
+- ✅ Timeout → Increased to 300s
+- ✅ MLS clearing on switch → Fixed handleLoadDescListing
+- ✅ Address lost on tab switch → AddressInput is controlled component
+- ✅ Photos not loading → Uses setPhotosFromUrls()
+- ✅ Walkthrough complexity → Feature removed (silent videos only)
+- ⚠️ Photo categorization 503 → Non-blocking, low priority
+- ⚠️ ATTOM tax data inconsistent → User can manually edit
+
+## Environment
+
+- Use Plan Mode for complex tasks
+- Check existing hooks before creating new ones
+- Use absolute imports with `@/` prefix
+- Always handle loading states and errors
+- Include proper TypeScript types

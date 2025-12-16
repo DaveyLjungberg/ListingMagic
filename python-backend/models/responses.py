@@ -70,7 +70,6 @@ class HealthResponse(BaseModel):
     models: Dict[str, str] = Field(
         default_factory=lambda: {
             "public_remarks": "gpt-4.1",
-            "walkthru_script": "claude-sonnet-4-20250514",
             "features": "gemini-3-pro-latest",
             "reso_data": "gemini-3-pro-latest"
         }
@@ -119,30 +118,6 @@ class PublicRemarksResponse(BaseModel):
                 }
             }
         }
-
-
-class WalkthruScriptResponse(BaseModel):
-    """Response from walk-thru script generation."""
-    success: bool = Field(default=True)
-    script: str = Field(..., description="Generated video narration script")
-    word_count: int = Field(default=0)
-    estimated_duration_seconds: int = Field(
-        default=0,
-        description="Estimated speaking duration"
-    )
-
-    # Script sections
-    sections: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Script broken into sections (intro, rooms, outro)"
-    )
-
-    # Usage metrics
-    usage: UsageMetrics = Field(default_factory=UsageMetrics)
-
-    # Metadata
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
-    request_id: Optional[str] = Field(None)
 
 
 class FeatureCategory(BaseModel):

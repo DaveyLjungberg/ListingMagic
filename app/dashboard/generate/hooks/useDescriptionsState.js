@@ -18,20 +18,25 @@ export function useDescriptionsState() {
   const [addressDesc, setAddressDesc] = useState(null);
 
   // Generation state
-  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
-  const [generationProgressDesc, setGenerationProgressDesc] = useState({ step: 0, total: 3, label: "" });
+  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false); // Overlay-only (Public Remarks)
+  const [isGeneratingFeatures, setIsGeneratingFeatures] = useState(false); // Features tab loading
+  const [isGeneratingBackground, setIsGeneratingBackground] = useState(false); // Background tasks running
+  const [generationProgressDesc, setGenerationProgressDesc] = useState({ 
+    phase: "uploadingPhotos", // "uploadingPhotos" | "analyzingPhotos" | "generatingPublicRemarks"
+    current: 0, 
+    total: 0, 
+    label: "" // Still used for button text
+  });
 
   // Content generation results
   const [generationState, setGenerationState] = useState({
     publicRemarks: { status: "idle", data: null, error: null },
-    walkthruScript: { status: "idle", data: null, error: null },
     features: { status: "idle", data: null, error: null },
   });
 
   // Section expansion state
   const [expandedSections, setExpandedSections] = useState({
     publicRemarks: false,
-    walkthruScript: false,
     features: false,
   });
 
@@ -99,12 +104,11 @@ export function useDescriptionsState() {
 
   // Check if there's content to clear
   const hasDescDataToClear = photosDesc.length > 0 || addressDesc?.street ||
-    generationState.publicRemarks.data || generationState.walkthruScript.data || generationState.features.data;
+    generationState.publicRemarks.data || generationState.features.data;
 
   // Check if content has been generated
   const hasGeneratedContent =
     generationState.publicRemarks.data ||
-    generationState.walkthruScript.data ||
     generationState.features.data;
 
   // Clear all data
@@ -119,19 +123,25 @@ export function useDescriptionsState() {
 
     setGenerationState({
       publicRemarks: { status: "idle", data: null, error: null },
-      walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
     });
 
     setExpandedSections({
       publicRemarks: false,
-      walkthruScript: false,
       features: false,
     });
     hasAutoExpandedRef.current = false;
 
     setCurrentListingIdDesc(null);
     setComplianceReportDesc(null);
+    
+    // Reset generation progress
+    setGenerationProgressDesc({
+      phase: "uploadingPhotos",
+      current: 0,
+      total: 0,
+      label: "",
+    });
 
     toast.success("Property data cleared");
   };
@@ -152,10 +162,10 @@ export function useDescriptionsState() {
 
   // Reset auto-expand flag when generation starts
   useEffect(() => {
-    if (isGeneratingDesc) {
+    if (isGeneratingDesc || isGeneratingBackground) {
       hasAutoExpandedRef.current = false;
     }
-  }, [isGeneratingDesc]);
+  }, [isGeneratingDesc, isGeneratingBackground]);
 
   // Format features for display
   const formatFeaturesText = (featuresData) => {
@@ -191,6 +201,10 @@ export function useDescriptionsState() {
     // Generation state
     isGeneratingDesc,
     setIsGeneratingDesc,
+    isGeneratingFeatures,
+    setIsGeneratingFeatures,
+    isGeneratingBackground,
+    setIsGeneratingBackground,
     generationProgressDesc,
     setGenerationProgressDesc,
     generationState,

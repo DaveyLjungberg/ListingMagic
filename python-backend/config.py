@@ -2,9 +2,8 @@
 Listing Magic - Configuration Module
 
 Centralized configuration for AI models, costs, and application settings.
-Uses three cutting-edge AI models optimized for different tasks:
+Uses two cutting-edge AI models optimized for different tasks:
 - GPT-4.1 Vision: Photo analysis + persuasive listing copy
-- Claude Sonnet 4.5: Natural video narration scripts
 - Gemini 3 Pro: Fast structured data (features, RESO)
 """
 
@@ -178,15 +177,13 @@ GEMINI3_CONFIG = ModelConfig(
 
 TASK_MODEL_MAPPING: Dict[str, ModelConfig] = {
     "public_remarks": GPT41_CONFIG,
-    "walkthru_script": CLAUDE_SONNET_CONFIG,
     "features": GEMINI3_CONFIG,
     "reso_data": GEMINI3_CONFIG,
 }
 
 # Fallback configurations when primary model is unavailable
 FALLBACK_MAPPING: Dict[str, str] = {
-    "public_remarks": "walkthru_script",  # GPT-4.1 → Claude (loses photo analysis)
-    "walkthru_script": "public_remarks",   # Claude → GPT-4.1
+    "public_remarks": "features",          # GPT-4.1 → Gemini
     "features": "public_remarks",          # Gemini → GPT-4.1
     "reso_data": "public_remarks",         # Gemini → GPT-4.1
 }
@@ -247,13 +244,6 @@ PROMPT_CONFIG = {
         "style": "persuasive_marketing",
         "tone": "professional_yet_warm",
         "include_call_to_action": True
-    },
-    "walkthru_script": {
-        "min_duration_seconds": 60,
-        "max_duration_seconds": 180,
-        "style": "conversational_guide",
-        "include_transitions": True,
-        "pacing": "moderate"
     },
     "features": {
         "format": "bullet_list",

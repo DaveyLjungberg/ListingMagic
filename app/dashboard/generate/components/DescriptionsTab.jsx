@@ -27,10 +27,12 @@ export default function DescriptionsTab({
   photoUrlsDesc,
 
   // Address state
-  // addressDesc, // unused
+  addressDesc,
 
   // Generation state
   isGeneratingDesc,
+  isGeneratingFeatures,
+  isGeneratingBackground,
   generationProgressDesc,
   generationState,
   // expandedSections, // unused
@@ -112,11 +114,6 @@ export default function DescriptionsTab({
         if (remarksInstruction) handleRefineRemarks(remarksInstruction);
         break;
       }
-      case "Walk-thru Script": {
-        const scriptInstruction = prompt("How would you like to refine the walk-thru script?");
-        if (scriptInstruction) handleRefineScript(scriptInstruction);
-        break;
-      }
       case "Features Sheet": {
         const featuresInstruction = prompt("How would you like to refine the features?");
         if (featuresInstruction) handleRefineFeatures(featuresInstruction);
@@ -128,16 +125,18 @@ export default function DescriptionsTab({
   // Compute results object for ResultsTabs
   const results = {
     publicRemarks: generationState.publicRemarks.data?.text || "",
-    walkthruScript: generationState.walkthruScript.data?.script || "",
     features: formatFeaturesText(generationState.features.data) || "",
   };
+
+  // Disable inputs while generation is active (overlay or background)
+  const isGeneratingAny = isGeneratingDesc || isGeneratingBackground;
 
   return (
     <>
       {/* Narrative Loader Overlay */}
       <NarrativeLoader 
         isGenerating={isGeneratingDesc}
-        currentStep={generationProgressDesc.step}
+        progress={generationProgressDesc}
       />
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -148,7 +147,7 @@ export default function DescriptionsTab({
           <div className="flex justify-end gap-2">
             <button
               onClick={handleClearDescData}
-              disabled={isGeneratingDesc || !hasDescDataToClear}
+              disabled={isGeneratingAny || !hasDescDataToClear}
               className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
               title="Clear all data and start fresh"
             >
@@ -161,7 +160,7 @@ export default function DescriptionsTab({
               listingType="descriptions"
               userId={user?.id}
               onSelectListing={handleLoadDescListing}
-              disabled={isGeneratingDesc}
+              disabled={isGeneratingAny}
             />
           </div>
 
@@ -171,7 +170,7 @@ export default function DescriptionsTab({
               ref={photoUploaderDescRef}
               photos={photosDesc}
               onPhotosChange={handlePhotosChangeDesc}
-              disabled={isGeneratingDesc}
+              disabled={isGeneratingAny}
             />
           </ErrorBoundary>
 
@@ -271,8 +270,9 @@ export default function DescriptionsTab({
           <div className="border-t border-slate-200 pt-4">
             <AddressInput
               ref={addressInputDescRef}
+              value={addressDesc}
               onAddressChange={handleAddressChangeDesc}
-              disabled={isGeneratingDesc}
+              disabled={isGeneratingAny}
               hideTaxFields={true}
               autoFetchTaxRecords={true}
             />
@@ -282,19 +282,19 @@ export default function DescriptionsTab({
           <div className="border-t border-slate-200 pt-4">
             <button
               onClick={handleGenerateAllDesc}
-              disabled={isGeneratingDesc || !isFormReadyDesc}
+              disabled={isGeneratingAny || !isFormReadyDesc}
               className="btn btn-primary w-full gap-2"
             >
-              {isGeneratingDesc ? (
+              {isGeneratingAny ? (
                 <>
                   <span className="loading loading-spinner loading-sm"></span>
                   <span className="flex flex-col items-start">
                     <span className="text-sm">
                       {generationProgressDesc.label || "Generating..."}
                     </span>
-                    {generationProgressDesc.step > 0 && (
+                    {generationProgressDesc.phase === "analyzingPhotos" && generationProgressDesc.total > 0 && (
                       <span className="text-xs opacity-70">
-                        Step {generationProgressDesc.step} of {generationProgressDesc.total}
+                        Photo {generationProgressDesc.current} of {generationProgressDesc.total}
                       </span>
                     )}
                   </span>
@@ -326,11 +326,12 @@ export default function DescriptionsTab({
           results={results}
           onCopy={handleCopy}
           onRefine={handleRefine}
+          isGeneratingFeatures={isGeneratingFeatures}
           videoData={videoData}
           secondsPerPhoto={secondsPerPhoto}
           setSecondsPerPhoto={setSecondsPerPhoto}
           isGeneratingVideo={isGeneratingVideo}
-          onGenerateVideo={() => handleGenerateVideo(generationState.walkthruScript.data?.script, photoUrlsDesc, currentListingIdDesc)}
+          onGenerateVideo={() => handleGenerateVideo(photoUrlsDesc, currentListingIdDesc)}
           onPreviewVideo={handlePreviewVideo}
           onDownloadVideo={(url) => handleDownloadVideo(url, currentListingIdDesc)}
           photoUrlsDesc={photoUrlsDesc}

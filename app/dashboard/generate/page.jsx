@@ -5,12 +5,12 @@ import toast from "react-hot-toast";
 import { supabase } from "@/libs/supabase";
 import {
   generateFeatures,
-  generateWalkthruScript,
   generatePublicRemarks,
   generateMLSDataWithStorage,
   convertPhotosToImageInputs,
   getFriendlyErrorMessage,
   isRateLimitError,
+  orderPhotosForWalkthrough,
 } from "@/libs/generate-api";
 import { uploadPhotosToStorage } from "@/libs/supabase-storage-upload";
 import { saveListing, updateListing } from "@/libs/listings";
@@ -99,7 +99,6 @@ export default function GeneratePage() {
 
     const allGenerated =
       descState.generationState.publicRemarks.status === "success" &&
-      descState.generationState.walkthruScript.status === "success" &&
       descState.generationState.features.status === "success";
 
     const hasValidPhotoUrls = descState.photoUrlsDesc.length > 0 &&
@@ -110,12 +109,10 @@ export default function GeneratePage() {
         try {
           const totalCost =
             (descState.generationState.publicRemarks.data?.usage?.cost_usd || 0) +
-            (descState.generationState.walkthruScript.data?.usage?.cost_usd || 0) +
             (descState.generationState.features.data?.usage?.cost_usd || 0);
 
           const totalTime =
             (descState.generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
-            (descState.generationState.walkthruScript.data?.usage?.generation_time_ms || 0) +
             (descState.generationState.features.data?.usage?.generation_time_ms || 0);
 
           const propertyAddress = descState.addressDesc
@@ -140,7 +137,6 @@ export default function GeneratePage() {
             bedrooms: mlsState.mlsData?.mls_fields?.bedrooms || null,
             bathrooms: mlsState.mlsData?.mls_fields?.bathrooms || null,
             public_remarks: descState.generationState.publicRemarks.data?.text || null,
-            walkthru_script: descState.generationState.walkthruScript.data?.script || null,
             features: descState.generationState.features.data
               ? JSON.stringify(descState.generationState.features.data.categorized_features || descState.generationState.features.data.features_list)
               : null,
@@ -166,7 +162,6 @@ export default function GeneratePage() {
     }
   }, [
     descState.generationState.publicRemarks.status,
-    descState.generationState.walkthruScript.status,
     descState.generationState.features.status,
     descState.photoUrlsDesc,
     descState.currentListingIdDesc,
@@ -239,7 +234,6 @@ export default function GeneratePage() {
               bedrooms: mlsState.mlsData.mls_fields?.bedrooms || null,
               bathrooms: mlsState.mlsData.mls_fields?.bathrooms || null,
               public_remarks: null,
-              walkthru_script: null,
               features: null,
               mls_data: mlsState.mlsData,
               photo_urls: mlsState.photoUrlsMLS,
@@ -268,33 +262,37 @@ export default function GeneratePage() {
   // GENERATION HANDLERS
   // =========================================================================
 
-  // Handle generate all content - SEQUENTIAL to avoid rate limits
+  // Handle generate all content - PROGRESSIVE: Public Remarks (overlay) → Features/MLS/Video (background)
   const handleGenerateAllDesc = useCallback(async () => {
     if (!descState.isFormReadyDesc) {
       toast.error("Please upload photos and enter a complete address");
       return;
     }
 
+    // Set overlay flag for Public Remarks only
     descState.setIsGeneratingDesc(true);
-    let successCount = 0;
-    let rateLimitHit = false;
-    const totalSteps = 4;
+    descState.setIsGeneratingBackground(true);
 
-    // Start wake lock
+    // Start wake lock for overlay
     await wakeLock.startGeneration("Initializing...");
 
     // Reset all states
     descState.setGenerationState({
       publicRemarks: { status: "idle", data: null, error: null },
-      walkthruScript: { status: "idle", data: null, error: null },
       features: { status: "idle", data: null, error: null },
     });
     mlsState.setMlsData(null);
     mlsState.setMlsDataEditable(null);
+    video.setVideoData(null);
 
     try {
       // Step 0: Upload photos to Supabase Storage
-      descState.setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Uploading photos..." });
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "Uploading photos..." 
+      });
       wakeLock.setCurrentOperationLabel("Uploading photos to storage...");
       toast.loading("Uploading photos...", { id: "generating-desc" });
 
@@ -316,11 +314,31 @@ export default function GeneratePage() {
         }
       }
 
-      // Convert photos to base64 for API calls
-      descState.setGenerationProgressDesc({ step: 0, total: totalSteps, label: "Preparing photos..." });
-      wakeLock.setCurrentOperationLabel("Preparing photos for AI analysis...");
-      toast.loading("Preparing photos...", { id: "generating-desc" });
-      const imageInputs = await convertPhotosToImageInputs(descState.photosDesc, currentPhotoUrls);
+      // Convert photos to base64 for API calls with real-time progress
+      const totalPhotos = descState.photosDesc.length;
+      descState.setGenerationProgressDesc({ 
+        phase: "analyzingPhotos", 
+        current: 0, 
+        total: totalPhotos, 
+        label: "Analyzing photos..." 
+      });
+      wakeLock.setCurrentOperationLabel("Analyzing photos for AI processing...");
+      toast.loading("Analyzing photos...", { id: "generating-desc" });
+      
+      const imageInputs = await convertPhotosToImageInputs(
+        descState.photosDesc, 
+        currentPhotoUrls,
+        (current, total) => {
+          // Update progress in real-time as each photo is processed
+          descState.setGenerationProgressDesc({ 
+            phase: "analyzingPhotos", 
+            current, 
+            total, 
+            label: `Analyzing photo ${current} of ${total}...` 
+          });
+          wakeLock.setCurrentOperationLabel(`Analyzing photo ${current} of ${total}...`);
+        }
+      );
 
       const propertyDetails = {
         address: descState.addressDesc,
@@ -328,154 +346,261 @@ export default function GeneratePage() {
         property_type: "single_family",
       };
 
-      // STEP 1: Public Remarks (GPT-4.1)
-      console.log("[Generation] Step 1/4: Public Remarks");
-      descState.setGenerationProgressDesc({ step: 1, total: totalSteps, label: "Generating public remarks..." });
-      wakeLock.setCurrentOperationLabel("Analyzing photos and generating public remarks with GPT-4.1...");
-      toast.loading(`Generating public remarks... (1/${totalSteps})`, { id: "generating-desc" });
+      // STEP 1 (AWAITED): Public Remarks - this is the only step that blocks the overlay
+      console.log("[Generation] Step 1: Public Remarks (awaited)");
+      descState.setGenerationProgressDesc({ 
+        phase: "generatingPublicRemarks", 
+        current: 0, 
+        total: 0, 
+        label: "Generating public remarks..." 
+      });
+      wakeLock.setCurrentOperationLabel("Generating public remarks...");
+      toast.loading("Generating public remarks...", { id: "generating-desc" });
       descState.setGenerationState(prev => ({
         ...prev,
         publicRemarks: { status: "loading", data: null, error: null },
       }));
 
+      let publicRemarksSuccess = false;
       try {
         const publicRemarksResult = await generatePublicRemarks(propertyDetails);
         descState.setGenerationState(prev => ({
           ...prev,
           publicRemarks: { status: "success", data: publicRemarksResult, error: null },
         }));
-        successCount++;
+        publicRemarksSuccess = true;
+        toast.success("Public remarks ready! Reading background tasks...", { id: "generating-desc" });
       } catch (error) {
         const friendlyError = getFriendlyErrorMessage(error);
         descState.setGenerationState(prev => ({
           ...prev,
           publicRemarks: { status: "error", data: null, error: friendlyError },
         }));
+        toast.error(`Public remarks failed: ${friendlyError}`, { id: "generating-desc" });
+        
         if (isRateLimitError(error)) {
-          rateLimitHit = true;
+          // Stop here if rate limited
+          return;
         }
       }
 
-      // STEP 2: Walk-thru Script (Claude)
-      if (!rateLimitHit) {
-        console.log("[Generation] Step 2/4: Walk-thru Script");
-        descState.setGenerationProgressDesc({ step: 2, total: totalSteps, label: "Generating walk-thru script..." });
-        wakeLock.setCurrentOperationLabel("Creating walk-through video script with Claude...");
-        toast.loading(`Generating walk-thru script... (2/${totalSteps})`, { id: "generating-desc" });
-        descState.setGenerationState(prev => ({
-          ...prev,
-          walkthruScript: { status: "loading", data: null, error: null },
-        }));
+      // IMMEDIATELY close overlay and end wake lock so user can read
+      console.log("[Generation] Public Remarks complete - closing overlay");
+      descState.setIsGeneratingDesc(false);
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "" 
+      });
+      await wakeLock.endGeneration();
 
-        try {
-          const walkthruResult = await generateWalkthruScript(propertyDetails);
-          descState.setGenerationState(prev => ({
-            ...prev,
-            walkthruScript: { status: "success", data: walkthruResult, error: null },
-          }));
-          successCount++;
-        } catch (error) {
-          const friendlyError = getFriendlyErrorMessage(error);
-          descState.setGenerationState(prev => ({
-            ...prev,
-            walkthruScript: { status: "error", data: null, error: friendlyError },
-          }));
-          if (isRateLimitError(error)) {
-            rateLimitHit = true;
-          }
-        }
-      }
-
-      // STEP 3: Features (Gemini)
-      if (!rateLimitHit) {
-        console.log("[Generation] Step 3/4: Features");
-        descState.setGenerationProgressDesc({ step: 3, total: totalSteps, label: "Generating features..." });
-        wakeLock.setCurrentOperationLabel("Extracting property features with Gemini...");
-        toast.loading(`Generating features... (3/${totalSteps})`, { id: "generating-desc" });
-        descState.setGenerationState(prev => ({
-          ...prev,
-          features: { status: "loading", data: null, error: null },
-        }));
-
-        try {
-          const featuresResult = await generateFeatures(propertyDetails);
-          descState.setGenerationState(prev => ({
-            ...prev,
-            features: { status: "success", data: featuresResult, error: null },
-          }));
-          successCount++;
-        } catch (error) {
-          const friendlyError = getFriendlyErrorMessage(error);
-          descState.setGenerationState(prev => ({
-            ...prev,
-            features: { status: "error", data: null, error: friendlyError },
-          }));
-          if (isRateLimitError(error)) {
-            rateLimitHit = true;
-          }
-        }
-      }
-
-      // STEP 4: MLS Data (Claude)
-      if (!rateLimitHit) {
-        console.log("[Generation] Step 4/4: MLS Data");
-        descState.setGenerationProgressDesc({ step: 4, total: totalSteps, label: "Extracting MLS data..." });
-        wakeLock.setCurrentOperationLabel("Generating RESO-formatted MLS data with Claude...");
-        toast.loading(`Extracting MLS data... (4/${totalSteps})`, { id: "generating-desc" });
-
-        try {
-          const addressString = descState.addressDesc
-            ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
-            : "";
-
-          const taxData = descState.addressInputDescRef.current?.getTaxData?.();
-
-          const { mlsData: mlsResult, photoUrls: mlsPhotoUrls } = await generateMLSDataWithStorage(
-            descState.photosDesc,
-            addressString,
-            user?.id,
-            "claude",
-            () => { },
-            taxData
-          );
-
-          mlsState.setMlsData(mlsResult);
-          if (mlsPhotoUrls.length > 0) {
-            mlsState.setPhotoUrlsMLS(mlsPhotoUrls);
-          } else if (currentPhotoUrls.length > 0) {
-            mlsState.setPhotoUrlsMLS(currentPhotoUrls);
-          }
-          mlsState.setAddressMLS(descState.addressDesc);
-          successCount++;
-        } catch (error) {
-          console.error("MLS generation error:", error);
-          const friendlyError = getFriendlyErrorMessage(error);
-          console.warn(`MLS generation failed: ${friendlyError}`);
-        }
-      }
-
-      // Show appropriate toast
-      if (rateLimitHit) {
-        toast.error("Rate limit hit. Please wait 1 minute and try again.", { id: "generating-desc" });
-      } else if (successCount === totalSteps) {
-        toast.success("All content generated successfully!", { id: "generating-desc" });
-        wakeLock.sendCompletionNotification("All property content generated successfully!");
-      } else if (successCount > 0) {
-        toast.success(`Generated ${successCount}/${totalSteps} sections`, { id: "generating-desc" });
-        wakeLock.sendCompletionNotification(`Generated ${successCount}/${totalSteps} sections`);
-      } else {
-        toast.error("Failed to generate content", { id: "generating-desc" });
+      // BACKGROUND TASKS (not awaited) - Features, MLS, and Video
+      // These run without blocking the UI
+      if (publicRemarksSuccess) {
+        console.log("[Generation] Starting background tasks (Features, MLS, Video)");
+        
+        // Kick off background generation (fire and forget)
+        runBackgroundGeneration(
+          propertyDetails,
+          currentPhotoUrls,
+          imageInputs,
+          descState,
+          mlsState,
+          video,
+          user
+        );
       }
     } catch (error) {
       console.error("Generation error:", error);
       const friendlyError = getFriendlyErrorMessage(error);
       toast.error(friendlyError, { id: "generating-desc" });
+      descState.setIsGeneratingBackground(false);
     } finally {
-      await wakeLock.endGeneration();
+      // Ensure overlay is closed
       descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ step: 0, total: totalSteps, label: "" });
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "" 
+      });
+      await wakeLock.endGeneration();
     }
-  }, [descState, mlsState, wakeLock, user]);
+  }, [descState, mlsState, video, wakeLock, user]);
+
+  // Background generation runner (not awaited)
+  const runBackgroundGeneration = async (
+    propertyDetails,
+    currentPhotoUrls,
+    imageInputs,
+    descState,
+    mlsState,
+    video,
+    user
+  ) => {
+    try {
+      // SEQUENTIAL ORDERING: Features → Video → MLS
+      
+      // Task 1: Generate Features (AWAIT)
+      console.log("[Background] Starting Features generation");
+      descState.setIsGeneratingFeatures(true);
+      descState.setGenerationState(prev => ({
+        ...prev,
+        features: { status: "loading", data: null, error: null },
+      }));
+
+      let featuresResult = null;
+      try {
+        featuresResult = await generateFeatures(propertyDetails);
+        descState.setGenerationState(prev => ({
+          ...prev,
+          features: { status: "success", data: featuresResult, error: null },
+        }));
+        console.log("[Background] Features complete");
+      } catch (error) {
+        const friendlyError = getFriendlyErrorMessage(error);
+        descState.setGenerationState(prev => ({
+          ...prev,
+          features: { status: "error", data: null, error: friendlyError },
+        }));
+        console.error("[Background] Features failed:", friendlyError);
+      } finally {
+        descState.setIsGeneratingFeatures(false);
+      }
+
+      // Task 2: Generate Video (AWAIT - only if features succeeded)
+      let videoSucceeded = false;
+      if (featuresResult && currentPhotoUrls.length > 0) {
+        console.log("[Background] Starting auto-video generation");
+
+        // Ensure we have a listing ID for video storage
+        let listingId = descState.currentListingIdDesc;
+        
+        if (!listingId && user) {
+          console.log("[Background] Creating listing for video storage");
+          try {
+            const totalCost =
+              (descState.generationState.publicRemarks.data?.usage?.cost_usd || 0) +
+              (featuresResult.usage?.cost_usd || 0);
+
+            const totalTime =
+              (descState.generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
+              (featuresResult.usage?.generation_time_ms || 0);
+
+            const propertyAddress = descState.addressDesc
+              ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
+              : "";
+
+            const listingData = {
+              user_id: user.id,
+              listing_type: "descriptions",
+              property_address: propertyAddress,
+              address_json: {
+                street: descState.addressDesc.street,
+                city: descState.addressDesc.city || "",
+                state: descState.addressDesc.state || "",
+                zip_code: descState.addressDesc.zip_code,
+                apn: descState.addressDesc.apn || null,
+                yearBuilt: descState.addressDesc.yearBuilt || null,
+                lotSize: descState.addressDesc.lotSize || null,
+                county: descState.addressDesc.county || null,
+              },
+              property_type: "single_family",
+              bedrooms: null, // MLS hasn't run yet
+              bathrooms: null, // MLS hasn't run yet
+              public_remarks: descState.generationState.publicRemarks.data?.text || null,
+              features: JSON.stringify(featuresResult.categorized_features || featuresResult.features_list),
+              mls_data: null, // MLS hasn't run yet
+              photo_urls: currentPhotoUrls,
+              ai_cost: totalCost,
+              generation_time: totalTime,
+            };
+
+            const result = await saveListing(listingData);
+            if (result.success) {
+              listingId = result.id;
+              descState.setCurrentListingIdDesc(result.id);
+              console.log("[Background] Listing created for video:", result.id);
+            }
+          } catch (error) {
+            console.error("[Background] Failed to create listing for video:", error);
+          }
+        }
+
+        // Generate video if we have a listing ID
+        if (listingId) {
+          try {
+            // Order photos for walkthrough (with timeout fallback)
+            console.log("[Background] Ordering photos for walkthrough");
+            const orderedPhotoUrls = await orderPhotosForWalkthrough(currentPhotoUrls, 15000);
+            
+            // Auto-generate video with 4 seconds per photo
+            await video.handleGenerateVideo(orderedPhotoUrls, listingId);
+            console.log("[Background] Video generation complete");
+            videoSucceeded = true;
+          } catch (error) {
+            console.error("[Background] Video generation failed:", error);
+            // Continue to MLS generation even if video fails
+          }
+        }
+      }
+
+      // Task 3: Generate MLS Data (ALWAYS RUN, even if video failed)
+      console.log("[Background] Starting MLS extraction");
+      mlsState.setIsGeneratingMLS(true);
+
+      try {
+        const addressString = descState.addressDesc
+          ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
+          : "";
+
+        const taxData = descState.addressInputDescRef.current?.getTaxData?.();
+
+        // Use existing photo URLs instead of re-uploading
+        const { mlsData: mlsResult } = await generateMLSDataWithStorage(
+          [], // Empty array - we'll use existingUrls instead
+          addressString,
+          user?.id,
+          "claude",
+          () => { }, // No progress callback for background
+          taxData,
+          currentPhotoUrls // Use already-uploaded URLs
+        );
+
+        mlsState.setMlsData(mlsResult);
+        mlsState.setPhotoUrlsMLS(currentPhotoUrls);
+        mlsState.setAddressMLS(descState.addressDesc);
+        console.log("[Background] MLS extraction complete");
+
+        // Update listing with MLS data if we have a listing ID
+        if (descState.currentListingIdDesc) {
+          try {
+            await updateListing(descState.currentListingIdDesc, {
+              mls_data: mlsResult,
+              bedrooms: mlsResult.mls_fields?.bedrooms || null,
+              bathrooms: mlsResult.mls_fields?.bathrooms || null,
+            });
+            console.log("[Background] Updated listing with MLS data");
+          } catch (error) {
+            console.error("[Background] Failed to update listing with MLS data:", error);
+          }
+        }
+      } catch (error) {
+        console.error("[Background] MLS extraction failed:", error);
+      } finally {
+        mlsState.setIsGeneratingMLS(false);
+      }
+
+      // All background tasks complete
+      descState.setIsGeneratingBackground(false);
+      console.log("[Background] All tasks complete");
+      
+    } catch (error) {
+      console.error("[Background] Background generation error:", error);
+      descState.setIsGeneratingBackground(false);
+    }
+  };
 
   // Handle generate MLS data
   const handleGenerateMLS = useCallback(async () => {
@@ -494,7 +619,12 @@ export default function GeneratePage() {
 
     console.log("[MLS Generation] Started, requesting wake lock...");
     mlsState.setIsGeneratingMLS(true);
-    descState.setGenerationProgressDesc({ step: 1, total: 1, label: "Extracting MLS data..." });
+    descState.setGenerationProgressDesc({ 
+      phase: "generatingPublicRemarks", // Reuse this phase for standalone MLS generation
+      current: 0, 
+      total: 0, 
+      label: "Extracting MLS data..." 
+    });
 
     await wakeLock.startGeneration("Generating MLS data from photos...");
 
@@ -550,7 +680,12 @@ export default function GeneratePage() {
       console.log("[MLS Generation] Complete, releasing wake lock");
       await wakeLock.endGeneration();
       mlsState.setIsGeneratingMLS(false);
-      descState.setGenerationProgressDesc({ step: 0, total: 1, label: "" });
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "" 
+      });
     }
   }, [descState, mlsState, wakeLock, user]);
 
@@ -566,7 +701,12 @@ export default function GeneratePage() {
 
     console.log("[Regenerate] Public Remarks - requesting wake lock...");
     descState.setIsGeneratingDesc(true);
-    descState.setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating public remarks..." });
+    descState.setGenerationProgressDesc({ 
+      phase: "generatingPublicRemarks", 
+      current: 0, 
+      total: 0, 
+      label: "Regenerating public remarks..." 
+    });
 
     await wakeLock.startGeneration("Regenerating public remarks...");
 
@@ -613,66 +753,12 @@ export default function GeneratePage() {
       console.log("[Regenerate] Public Remarks complete, releasing wake lock");
       await wakeLock.endGeneration();
       descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ step: 0, total: 1, label: "" });
-    }
-  }, [descState, wakeLock]);
-
-  const handleRegenerateWalkthruScript = useCallback(async () => {
-    if (!descState.currentListingIdDesc) {
-      toast.error("Please generate content first");
-      return;
-    }
-
-    console.log("[Regenerate] Walk-thru Script - requesting wake lock...");
-    descState.setIsGeneratingDesc(true);
-    descState.setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating walk-thru script..." });
-
-    await wakeLock.startGeneration("Regenerating walk-thru script...");
-
-    descState.setGenerationState(prev => ({
-      ...prev,
-      walkthruScript: { status: "loading", data: null, error: null },
-    }));
-
-    try {
-      const imageInputs = await convertPhotosToImageInputs(descState.photosDesc, descState.photoUrlsDesc);
-
-      const propertyDetails = {
-        address: descState.addressDesc,
-        photos: imageInputs,
-        property_type: "single_family",
-      };
-
-      const publicRemarks = descState.generationState.publicRemarks.data?.text;
-      const walkthruResult = await generateWalkthruScript(propertyDetails, publicRemarks);
-
-      descState.setGenerationState(prev => ({
-        ...prev,
-        walkthruScript: { status: "success", data: walkthruResult, error: null },
-      }));
-
-      const updateResult = await updateListing(descState.currentListingIdDesc, {
-        walkthru_script: walkthruResult.script,
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "" 
       });
-
-      if (updateResult.success) {
-        toast.success("Walk-thru Script regenerated and saved");
-        wakeLock.sendCompletionNotification("Walk-thru Script regenerated!");
-      } else {
-        toast.error("Regenerated but failed to save");
-      }
-    } catch (error) {
-      const friendlyError = getFriendlyErrorMessage(error);
-      descState.setGenerationState(prev => ({
-        ...prev,
-        walkthruScript: { status: "error", data: null, error: friendlyError },
-      }));
-      toast.error(friendlyError);
-    } finally {
-      console.log("[Regenerate] Walk-thru Script complete, releasing wake lock");
-      await wakeLock.endGeneration();
-      descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ step: 0, total: 1, label: "" });
     }
   }, [descState, wakeLock]);
 
@@ -684,7 +770,12 @@ export default function GeneratePage() {
 
     console.log("[Regenerate] Features - requesting wake lock...");
     descState.setIsGeneratingDesc(true);
-    descState.setGenerationProgressDesc({ step: 1, total: 1, label: "Regenerating features..." });
+    descState.setGenerationProgressDesc({ 
+      phase: "generatingPublicRemarks", 
+      current: 0, 
+      total: 0, 
+      label: "Regenerating features..." 
+    });
 
     await wakeLock.startGeneration("Regenerating features...");
 
@@ -730,7 +821,12 @@ export default function GeneratePage() {
       console.log("[Regenerate] Features complete, releasing wake lock");
       await wakeLock.endGeneration();
       descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ step: 0, total: 1, label: "" });
+      descState.setGenerationProgressDesc({ 
+        phase: "uploadingPhotos", 
+        current: 0, 
+        total: 0, 
+        label: "" 
+      });
     }
   }, [descState, wakeLock]);
 
@@ -753,20 +849,20 @@ export default function GeneratePage() {
       });
     }
 
-    // Set photo URLs
-    descState.setPhotoUrlsDesc(listing.photo_urls);
+    // Set photo URLs and populate photo grid
+    const urls = listing.photo_urls ?? [];
+    descState.setPhotoUrlsDesc(urls);
+    
+    // Populate the photo uploader UI so images appear in the grid
+    if (descState.photoUploaderDescRef.current) {
+      descState.photoUploaderDescRef.current.setPhotosFromUrls(urls);
+    }
 
     // Set generated content states
     if (listing.public_remarks) {
       descState.setGenerationState(prev => ({
         ...prev,
         publicRemarks: { status: "success", data: { text: listing.public_remarks }, error: null },
-      }));
-    }
-    if (listing.walkthru_script) {
-      descState.setGenerationState(prev => ({
-        ...prev,
-        walkthruScript: { status: "success", data: { script: listing.walkthru_script }, error: null },
       }));
     }
     if (listing.features) {
@@ -788,7 +884,6 @@ export default function GeneratePage() {
     if (listing.public_remarks) {
       descState.setExpandedSections({
         publicRemarks: true,
-        walkthruScript: false,
         features: false,
       });
     }
@@ -836,15 +931,6 @@ export default function GeneratePage() {
     );
   }, [refinement, descState]);
 
-  const handleRefineScript = useCallback(async (instruction) => {
-    await refinement.handleRefineScript(
-      instruction,
-      descState.generationState.walkthruScript.data?.script,
-      descState.addressDesc,
-      descState.currentListingIdDesc,
-      descState.setGenerationState
-    );
-  }, [refinement, descState]);
 
   const handleRefineFeatures = useCallback(async (instruction) => {
     await refinement.handleRefineFeatures(
@@ -899,6 +985,8 @@ export default function GeneratePage() {
 
             // Generation state
             isGeneratingDesc={descState.isGeneratingDesc}
+            isGeneratingFeatures={descState.isGeneratingFeatures}
+            isGeneratingBackground={descState.isGeneratingBackground}
             generationProgressDesc={descState.generationProgressDesc}
             generationState={descState.generationState}
             expandedSections={descState.expandedSections}
@@ -926,14 +1014,12 @@ export default function GeneratePage() {
             // Generation handlers
             handleGenerateAllDesc={handleGenerateAllDesc}
             handleRegeneratePublicRemarks={handleRegeneratePublicRemarks}
-            handleRegenerateWalkthruScript={handleRegenerateWalkthruScript}
             handleRegenerateFeatures={handleRegenerateFeatures}
             handleLoadDescListing={handleLoadDescListing}
             handleClearDescData={descState.handleClearDescData}
 
             // Refinement handlers
             handleRefineRemarks={handleRefineRemarks}
-            handleRefineScript={handleRefineScript}
             handleRefineFeatures={handleRefineFeatures}
             isRefiningRemarks={refinement.isRefiningRemarks}
             isRefiningScript={refinement.isRefiningScript}

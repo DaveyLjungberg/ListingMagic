@@ -4,30 +4,64 @@ import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallba
 import toast from "react-hot-toast";
 import { DocumentTextIcon, CheckCircleIcon, MapPinIcon } from "@heroicons/react/24/outline";
 
-const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFields = false, autoFetchTaxRecords = false }, ref) => {
+const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hideTaxFields = false, autoFetchTaxRecords = false }, ref) => {
+  // Initialize from value prop if provided
   const [address, setAddressState] = useState({
-    street: "",
-    zip: "",
-    city: "",
-    state: ""
+    street: value?.street || "",
+    zip: value?.zip_code || "",
+    city: value?.city || "",
+    state: value?.state || ""
   });
-  const [zipLookupStatus, setZipLookupStatus] = useState("idle"); // idle, loading, success, error
+  // Initialize ZIP lookup status from value prop
+  const hasInitialCityState = value?.city && value?.state;
+  const [zipLookupStatus, setZipLookupStatus] = useState(hasInitialCityState ? "success" : "idle");
   const [zipError, setZipError] = useState(null);
-  const lastLookedUpZip = useRef("");
+  const lastLookedUpZip = useRef(hasInitialCityState ? (value?.zip_code || "") : "");
 
-  // Tax record state
+  // Tax record state - initialize from value prop
+  const hasInitialTaxData = value?.apn || value?.yearBuilt || value?.lotSize || value?.county;
   const [taxData, setTaxData] = useState({
-    apn: "",
-    yearBuilt: "",
-    lotSize: "",
-    county: "",
+    apn: value?.apn || "",
+    yearBuilt: value?.yearBuilt || "",
+    lotSize: value?.lotSize || "",
+    county: value?.county || "",
   });
   const [loadingTaxRecords, setLoadingTaxRecords] = useState(false);
-  const [taxRecordsLoaded, setTaxRecordsLoaded] = useState(false);
+  const [taxRecordsLoaded, setTaxRecordsLoaded] = useState(hasInitialTaxData);
 
   // Store callback in ref to avoid re-render loops
   const onAddressChangeRef = useRef(onAddressChange);
   onAddressChangeRef.current = onAddressChange;
+
+  // Sync internal state when value prop changes (e.g., on remount or when loading a listing)
+  useEffect(() => {
+    if (value) {
+      const newAddress = {
+        street: value.street || "",
+        zip: value.zip_code || "",
+        city: value.city || "",
+        state: value.state || ""
+      };
+      setAddressState(newAddress);
+
+      const newTaxData = {
+        apn: value.apn || "",
+        yearBuilt: value.yearBuilt || "",
+        lotSize: value.lotSize || "",
+        county: value.county || "",
+      };
+      setTaxData(newTaxData);
+
+      // Update flags to avoid re-triggering lookups
+      if (value.city && value.state && value.zip_code) {
+        lastLookedUpZip.current = value.zip_code;
+        setZipLookupStatus("success");
+      }
+      if (value.apn || value.yearBuilt || value.lotSize || value.county) {
+        setTaxRecordsLoaded(true);
+      }
+    }
+  }, [value]);
 
   // Notify parent of address changes (including tax data)
   const notifyParent = useCallback((addressData, taxInfo) => {
@@ -89,12 +123,16 @@ const AddressInput = forwardRef(({ onAddressChange, disabled = false, hideTaxFie
     },
     isValid: () => Boolean(address.street && address.zip.length === 5),
     clearAddress: () => {
-      setAddressState({ street: "", zip: "", city: "", state: "" });
-      setTaxData({ apn: "", yearBuilt: "", lotSize: "", county: "" });
+      const emptyAddress = { street: "", zip: "", city: "", state: "" };
+      const emptyTaxData = { apn: "", yearBuilt: "", lotSize: "", county: "" };
+      setAddressState(emptyAddress);
+      setTaxData(emptyTaxData);
       setZipLookupStatus("idle");
       setZipError(null);
       setTaxRecordsLoaded(false);
       lastLookedUpZip.current = "";
+      // Notify parent to clear persisted state
+      notifyParent(emptyAddress, emptyTaxData);
     },
     setAddress: (newAddress) => {
       const addressData = {

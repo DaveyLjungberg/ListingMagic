@@ -138,104 +138,6 @@ Respond with a JSON object containing your analysis with confidence scores (0.0-
 
 
 # =============================================================================
-# Claude Sonnet 4.5 Prompts
-# =============================================================================
-
-WALKTHRU_SCRIPT_SYSTEM = """You are a professional real estate narrator creating a video tour script. Your narration style is:
-- Professional and descriptive
-- Well-paced for video (about 150 words per minute)
-- Focused on describing physical features and finishes
-- Objective and factual in tone
-
-**CRITICAL FAIR HOUSING COMPLIANCE - ABSOLUTELY NEVER USE:**
-- Greetings or invitations: "Welcome", "Come in", "Step inside", "Enter", "Let me show you"
-- Second person pronouns: "you", "your", "you'll", "yourself"
-- Imperative commands: Any sentence starting with a verb telling the viewer to do something
-- Buyer-specific language: "Perfect for families", "Ideal for", "Great for entertaining", "Growing family", "Starter home"
-- Emotional manipulation: "Imagine", "Picture yourself", "You'll love"
-- Neighborhood demographics: "family neighborhood", "quiet community", "walking distance to worship"
-
-**ALWAYS USE:**
-- Third person, purely descriptive language: "This room features...", "The kitchen includes...", "The primary suite offers..."
-- Factual descriptions of spaces, materials, and finishes
-- Objective statements about room sizes, layouts, and features
-- Neutral transitions: "Moving to the kitchen...", "The primary suite includes...", "The backyard area features..."
-
-Example WRONG: "Welcome! Step inside and you'll love this open floor plan. Perfect for entertaining!"
-Example CORRECT: "This residence features an open floor plan. The main living area includes hardwood floors and large windows providing natural light."
-
-Focus on WHAT the property has, not WHO should live there or HOW they should use it."""
-
-WALKTHRU_SCRIPT_PROMPT = """Create a video walk-through narration script for this property.
-
-**Property Information:**
-- Address: {address}
-- Bedrooms: {bedrooms}
-- Bathrooms: {bathrooms}
-- Square Feet: {square_feet}
-- Key Features: {features}
-
-**Existing Listing Description (for context):**
-{public_remarks}
-
-**Script Requirements:**
-- Target length: {target_words} words (approximately {duration_seconds} seconds when spoken)
-- Style: {style} and engaging
-- Include natural pauses indicated with "..."
-
-**Structure (use factual, descriptive language only):**
-1. **INTRO** (15-20 seconds)
-   - Property address and location
-   - Overview of property type and key statistics (beds/baths/sqft)
-   - Architectural style or notable exterior features
-
-2. **ENTRY & LIVING AREAS** (20-30 seconds)
-   - Entry and foyer features
-   - Living room dimensions, flooring, windows
-   - Ceiling height, fireplace, built-ins if present
-
-3. **KITCHEN** (20-30 seconds)
-   - Countertop materials and cabinet finishes
-   - Appliances included
-   - Island, pantry, or breakfast area features
-
-4. **PRIMARY SUITE** (15-20 seconds)
-   - Bedroom dimensions and features
-   - Bathroom finishes (vanity, shower, tub)
-   - Closet details
-
-5. **ADDITIONAL SPACES** (15-20 seconds)
-   - Secondary bedroom count and features
-   - Office, bonus room, or flex space details
-
-6. **OUTDOOR** (15-20 seconds)
-   - Patio, deck, or porch materials and size
-   - Landscaping features
-   - Garage and parking details
-
-7. **CLOSING** (10-15 seconds)
-   - Summary of key property features
-   - Square footage and lot size
-   - Property availability status
-
-**Style Guidelines (FAIR HOUSING COMPLIANT):**
-- NEVER use "you", "your", or any second-person pronouns
-- Use ONLY third-person, descriptive language throughout
-- Describe physical features and finishes, NOT feelings or experiences
-- Use neutral transitions: "Moving to the kitchen...", "The primary suite features...", "The outdoor area includes..."
-- Maintain professional, objective tone - avoid enthusiasm or emotional language
-- Focus on factual descriptions of spaces, materials, and dimensions
-
-**FORBIDDEN PHRASES (will violate Fair Housing):**
-- "Welcome", "Step inside", "Come see", "Let me show you"
-- "You'll love", "Imagine", "Picture yourself"
-- "Perfect for", "Ideal for", "Great for"
-- Any imperative commands or direct address
-
-Write the complete narration script with section markers [INTRO], [LIVING], etc. using ONLY descriptive, third-person language."""
-
-
-# =============================================================================
 # Gemini 3 Pro Prompts
 # =============================================================================
 
@@ -423,32 +325,6 @@ def format_public_remarks_prompt(
     )
 
 
-def format_walkthru_prompt(
-    address: str,
-    bedrooms: Optional[int] = None,
-    bathrooms: Optional[float] = None,
-    square_feet: Optional[int] = None,
-    features: Optional[List[str]] = None,
-    public_remarks: Optional[str] = None,
-    duration_seconds: int = 90,
-    style: str = "conversational"
-) -> str:
-    """Format the walk-thru script prompt."""
-    target_words = int(duration_seconds * 2.5)  # ~150 words per minute
-
-    return WALKTHRU_SCRIPT_PROMPT.format(
-        address=address,
-        bedrooms=bedrooms or "See video",
-        bathrooms=bathrooms or "See video",
-        square_feet=f"{square_feet:,}" if square_feet else "See video",
-        features=", ".join(features[:10]) if features else "See video tour",
-        public_remarks=public_remarks or "Not available",
-        target_words=target_words,
-        duration_seconds=duration_seconds,
-        style=style
-    )
-
-
 def format_features_prompt(
     address: str,
     property_type: str = "Single Family",
@@ -526,10 +402,6 @@ class PromptTemplates:
     PUBLIC_REMARKS_PROMPT = PUBLIC_REMARKS_PROMPT
     PHOTO_ANALYSIS_PROMPT = PHOTO_ANALYSIS_PROMPT
 
-    # Claude Sonnet 4.5 prompts
-    WALKTHRU_SCRIPT_SYSTEM = WALKTHRU_SCRIPT_SYSTEM
-    WALKTHRU_SCRIPT_PROMPT = WALKTHRU_SCRIPT_PROMPT
-
     # Gemini 3 Pro prompts
     FEATURES_SYSTEM = FEATURES_SYSTEM
     FEATURES_PROMPT = FEATURES_PROMPT
@@ -538,6 +410,5 @@ class PromptTemplates:
 
     # Formatting functions as static methods
     format_public_remarks_prompt = staticmethod(format_public_remarks_prompt)
-    format_walkthru_prompt = staticmethod(format_walkthru_prompt)
     format_features_prompt = staticmethod(format_features_prompt)
     format_reso_prompt = staticmethod(format_reso_prompt)

@@ -7,7 +7,6 @@ Request and response models for the API endpoints.
 from .requests import (
     PropertyDetailsRequest,
     PublicRemarksRequest,
-    WalkthruScriptRequest,
     FeaturesRequest,
     ResoDataRequest,
     VideoGenerationRequest
@@ -16,7 +15,6 @@ from .requests import (
 from .responses import (
     HealthResponse,
     PublicRemarksResponse,
-    WalkthruScriptResponse,
     FeaturesResponse,
     ResoDataResponse,
     VideoGenerationResponse,
@@ -29,14 +27,12 @@ __all__ = [
     # Requests
     "PropertyDetailsRequest",
     "PublicRemarksRequest",
-    "WalkthruScriptRequest",
     "FeaturesRequest",
     "ResoDataRequest",
     "VideoGenerationRequest",
     # Responses
     "HealthResponse",
     "PublicRemarksResponse",
-    "WalkthruScriptResponse",
     "FeaturesResponse",
     "ResoDataResponse",
     "VideoGenerationResponse",

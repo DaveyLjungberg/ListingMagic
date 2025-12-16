@@ -1,9 +1,8 @@
 """
 Listing Magic - FastAPI Backend
 
-Three cutting-edge AI models working together:
+Two cutting-edge AI models working together:
 - GPT-4.1 Vision (OpenAI): Photo analysis + listing descriptions
-- Claude Sonnet 4.5 (Anthropic): Video walk-thru scripts
 - Gemini 3 Pro (Google): Features lists + RESO data
 
 Run with: uvicorn main:app --reload --port 8000
@@ -23,13 +22,11 @@ from config import settings, TASK_MODEL_MAPPING, get_fallback_model
 from models import (
     # Requests
     PublicRemarksRequest,
-    WalkthruScriptRequest,
     FeaturesRequest,
     ResoDataRequest,
     # Responses
     HealthResponse,
     PublicRemarksResponse,
-    WalkthruScriptResponse,
     FeaturesResponse,
     ResoDataResponse,
     ErrorResponse
@@ -92,9 +89,8 @@ app = FastAPI(
     description="""
     AI-Powered Real Estate Marketing API
 
-    Uses three cutting-edge AI models:
+    Uses two cutting-edge AI models:
     - **GPT-4.1 Vision** (OpenAI): Photo analysis + persuasive listing descriptions
-    - **Claude Sonnet 4.5** (Anthropic): Natural video walk-thru scripts
     - **Gemini 3 Pro** (Google): Fast features lists + RESO-formatted data
     """,
     version="1.0.0",
@@ -208,7 +204,6 @@ async def health_check():
         },
         models={
             "public_remarks": openai_health["model"],
-            "walkthru_script": anthropic_health["model"],
             "features": gemini_health["model"],
             "reso_data": gemini_health["model"]
         }
@@ -297,96 +292,6 @@ async def generate_public_remarks(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate public remarks: {str(e)}"
-        )
-
-
-# =============================================================================
-# Walk-thru Script Endpoint (Claude Sonnet 4.5)
-# =============================================================================
-
-@app.post(
-    "/api/generate-walkthru-script",
-    response_model=WalkthruScriptResponse,
-    tags=["Content Generation"]
-)
-async def generate_walkthru_script(
-    request: WalkthruScriptRequest
-) -> WalkthruScriptResponse:
-    """
-    Generate video walk-thru narration script.
-
-    Uses **Claude Sonnet 4.5** for:
-    - Natural, conversational narration
-    - Proper pacing for video timing
-    - Engaging, warm tone
-
-    If Claude is unavailable, falls back to GPT-4.1.
-    """
-    logger.info(
-        f"Generating walk-thru script for: {request.property_details.address.full_address}, "
-        f"duration: {request.duration_seconds}s"
-    )
-
-    try:
-        anthropic_service = get_anthropic_service()
-
-        response = await anthropic_service.generate_walkthru_script(
-            property_details=request.property_details,
-            duration_seconds=request.duration_seconds,
-            style=request.style,
-            include_intro=request.include_intro,
-            include_outro=request.include_outro,
-            public_remarks=request.public_remarks
-        )
-
-        # Fair Housing compliance check on generated content
-        compliance_result = check_fair_housing_compliance(response.script)
-        if not compliance_result.is_compliant:
-            logger.warning(f"Walk-thru script failed Fair Housing compliance: {compliance_result.violations}")
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "compliance_violation",
-                    "message": "Generated script contains Fair Housing violations. Please try again.",
-                    "violations": [
-                        {
-                            "category": v.category,
-                            "matches": v.matches,
-                            "suggestion": v.suggestion
-                        }
-                        for v in compliance_result.violations
-                    ]
-                }
-            )
-
-        # Track cost
-        cost_tracker = get_cost_tracker()
-        cost_tracker.record_usage(
-            provider="anthropic",
-            model=response.usage.model_used,
-            task="walkthru_script",
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            request_id=response.request_id or "unknown"
-        )
-
-        return response
-
-    except HTTPException:
-        raise  # Re-raise HTTP exceptions (including compliance violations)
-    except Exception as e:
-        logger.error(f"Error generating walk-thru script: {e}")
-
-        # Try fallback to GPT-4.1
-        fallback_config = get_fallback_model("walkthru_script")
-        if fallback_config:
-            logger.info(f"Attempting fallback to {fallback_config.name}")
-            # TODO: Implement fallback logic
-            pass
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate walk-thru script: {str(e)}"
         )
 
 

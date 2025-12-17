@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Home } from "lucide-react";
 import UserMenu from "@/components/UserMenu";
 
@@ -38,6 +39,14 @@ export default function DashboardHeader({ user, propertyAddress }) {
                 System Online
               </span>
             </div>
+            
+            {/* Buy Credits Link */}
+            <Link
+              href="/dashboard/pricing"
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              Buy Credits
+            </Link>
             
             <UserMenu user={user} />
           </div>

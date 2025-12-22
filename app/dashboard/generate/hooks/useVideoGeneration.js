@@ -14,15 +14,16 @@ export function useVideoGeneration() {
   const [secondsPerPhoto, setSecondsPerPhoto] = useState(4.0);
 
   // Generate silent video from photos
+  // Returns the video data on success, null on failure
   const handleGenerateVideo = async (photoUrlsDesc, currentListingIdDesc) => {
     if (!photoUrlsDesc || photoUrlsDesc.length === 0) {
       toast.error("No photos available for video generation");
-      return;
+      return null;
     }
 
     if (!currentListingIdDesc) {
       toast.error("Please generate content first");
-      return;
+      return null;
     }
 
     setIsGeneratingVideo(true);
@@ -46,10 +47,13 @@ export function useVideoGeneration() {
         `Video ready! ${Math.round(result.duration_seconds)}s, ${result.photos_used} photos`,
         { id: toastId, duration: 5000 }
       );
+
+      return result;
     } catch (error) {
       console.error("Video generation error:", error);
       const friendlyError = getFriendlyErrorMessage(error);
       toast.error(friendlyError, { id: toastId });
+      return null;
     } finally {
       setIsGeneratingVideo(false);
     }

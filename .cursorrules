@@ -1,4 +1,4 @@
-# QuickList - Cursor Rules
+t off# QuickList - Cursor Rules
 
 You are an expert full-stack developer working on **QuickList**, a SaaS that generates AI-powered real estate listing content in 60-90 seconds.
 
@@ -16,6 +16,18 @@ You are an expert full-stack developer working on **QuickList**, a SaaS that gen
 - Frontend: https://listing-magic.vercel.app
 - Backend: https://listingmagic-production.up.railway.app
 - Database: https://vbfwcemtkgymygccgffl.supabase.co
+
+## MANDATORY: Real-Time Documentation Updates
+
+**Update docs AS YOU WORK, not at the end of a session.**
+
+When you make changes to QuickList, immediately update:
+- **Code changes** → `CLAUDE.md`, `.cursorrules`
+- **Bug fixes** → Add to "Known Issues" sections + `.agent-workspace/logs/bugs/`
+- **Features** → Update codebase structure, generation flow
+- **Tech decisions** → `.agent-workspace/context/tech-decisions.md`
+
+**Rule**: If you changed code, update the docs. No exceptions.
 
 ## CRITICAL: Fair Housing Compliance
 
@@ -37,27 +49,49 @@ ALL AI-generated descriptions MUST follow Fair Housing rules:
 ```
 listing-magic/
 ├── app/                          # Next.js App Router
-│   ├── dashboard/generate/       # Main generation page
-│   │   ├── components/           # DescriptionsTab, MLSDataTab, ResultsTabs
-│   │   ├── hooks/                # useDescriptionsState, useMLSState, useVideoGeneration
-│   │   └── page.jsx              # Main orchestrator
+│   ├── api/
+│   │   ├── credits/              # Credit system API
+│   │   │   ├── route.ts          # GET balance, POST use credit
+│   │   │   └── add/route.ts      # POST add credits (admin)
+│   │   ├── stripe/               # Stripe payment integration
+│   │   │   ├── checkout/route.js # POST create credit purchase checkout
+│   │   │   └── webhook/route.js  # POST webhook for credit fulfillment
+│   │   └── listings/             # Listings CRUD
+│   ├── dashboard/
+│   │   ├── generate/             # Main generation page
+│   │   │   ├── components/       # DescriptionsTab, MLSDataTab, ResultsTabs
+│   │   │   ├── hooks/            # useDescriptionsState, useMLSState, useVideoGeneration
+│   │   │   └── page.jsx          # Main orchestrator
+│   │   └── pricing/              # Credit purchase page
+│   │       └── page.jsx          # Pricing cards + team toggle
+├── components/
+│   └── DashboardHeader.jsx       # Header with "Buy Credits" button
 ├── libs/
 │   ├── generate-api.ts           # Backend API client
-│   └── supabase.ts               # Supabase client
+│   ├── credits.ts                # Credit system client
+│   ├── supabase.js               # Supabase client
+│   └── utils.js                  # Utility functions (getDomainFromEmail)
 ├── python-backend/               # FastAPI backend
 │   ├── endpoints/                # API endpoints
 │   ├── services/                 # AI provider integrations (openai, gemini)
 │   ├── compliance/               # Fair Housing validation
 │   └── utils/                    # Prompts, helpers
+├── supabase/
+│   └── migrations/               # Database migrations
+│       └── 001_credit_balances.sql  # Credit system schema + RPC functions
 └── .agent-workspace/             # Agent memory (READ THIS FIRST)
 ```
 
 ## Generation Flow (Current)
 
+**IMPORTANT: Credit Gatekeeper** - Credits checked BEFORE generation.
+
 1. **Upload Photos** → Supabase Storage
-2. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
-3. **Generate Public Remarks** → GPT-4o (overlay closes when done)
-4. **Background Tasks** (sequential):
+2. **Name Listing Modal** → Calls `check_and_decrement_credits` RPC
+   - Has credits: proceed | No credits: redirect to pricing
+3. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
+4. **Generate Public Remarks** → GPT-4o (overlay closes when done)
+5. **Background Tasks** (sequential):
    - Features List → Gemini
    - Video Generation → FFmpeg (silent slideshow)
    - MLS Extraction → Gemini
@@ -145,7 +179,15 @@ async def endpoint_name(request: RequestModel):
 |------|-------|
 | Main generation UI | `app/dashboard/generate/components/DescriptionsTab.jsx` |
 | MLS data display | `app/dashboard/generate/components/MLSDataTab.jsx` |
+| Credit gatekeeper modal | `components/listing-magic/NameListingModal.jsx` |
+| Pricing page | `app/dashboard/pricing/page.jsx` |
+| Dashboard header | `components/DashboardHeader.jsx` |
 | Backend API client | `libs/generate-api.ts` |
+| Credit system client | `libs/credits.ts` |
+| Credit API | `app/api/credits/route.ts` |
+| Stripe checkout | `app/api/stripe/checkout/route.js` |
+| Stripe webhook | `app/api/stripe/webhook/route.js` |
+| Utility functions | `libs/utils.js` |
 | AI prompts | `python-backend/utils/prompt_templates.py` |
 | Fair Housing rules | `python-backend/compliance/fair_housing.py` |
 | Agent memory | `.agent-workspace/` |
@@ -158,8 +200,48 @@ async def endpoint_name(request: RequestModel):
 - ✅ Address lost on tab switch → AddressInput is controlled component
 - ✅ Photos not loading → Uses setPhotosFromUrls()
 - ✅ Walkthrough complexity → Feature removed (silent videos only)
+- ✅ Video not persisting → video_url saved to database, restored on listing load
+- ✅ Credit double-charging → Moved to upfront gatekeeper modal (Dec 21, 2025)
 - ⚠️ Photo categorization 503 → Non-blocking, low priority
 - ⚠️ ATTOM tax data inconsistent → User can manually edit
+
+## Stripe Credit Purchases
+
+QuickList uses Stripe for credit purchases. Credits can be purchased for:
+- **Personal**: Tied to user's email (`creditType: "personal"`)
+- **Domain**: Shared team pool (`creditType: "domain"`)
+
+**Pricing Tiers** (per-pack):
+- Starter: 1 credit for $20
+- Pro: 10 credits for $150
+- Agency: 50 credits for $400
+
+**Flow**:
+1. Frontend → `POST /api/stripe/checkout` with `{priceId, quantity: 1, creditsAmount, creditType, userEmail, successUrl, cancelUrl}`
+2. Backend creates Stripe Checkout Session with:
+   - Line item quantity = 1 (buy one pack)
+   - Metadata: `{targetIdentifier, creditsAmount, creditType}` for fulfillment
+3. User completes payment
+4. Stripe → `POST /api/stripe/webhook` (checkout.session.completed)
+5. Webhook calls Supabase RPC `add_credits(owner, amount)` to increment balance
+
+**Environment Variables** (Required):
+
+Frontend:
+- `NEXT_PUBLIC_STRIPE_PRICE_STARTER` - Price ID for 1 credit pack
+- `NEXT_PUBLIC_STRIPE_PRICE_PRO` - Price ID for 10 credits pack
+- `NEXT_PUBLIC_STRIPE_PRICE_AGENCY` - Price ID for 50 credits pack
+
+Backend/Server:
+- `STRIPE_SECRET_KEY` - Stripe API key
+- `STRIPE_CREDITS_WEBHOOK_SECRET` - Webhook signing secret (or `STRIPE_WEBHOOK_SECRET`)
+- `SUPABASE_SERVICE_ROLE_KEY` - For RPC calls
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SITE_URL` - For URL validation
+
+**Important**: Stripe Prices must be configured as per-pack prices (not per-credit). Frontend always sends `quantity: 1` to Stripe; the `creditsAmount` field determines how many credits are granted via webhook.
+
+**Note**: Credits webhook (`/api/stripe/webhook`) is separate from legacy subscription webhook (`/api/webhook/stripe`).
 
 ## Environment
 

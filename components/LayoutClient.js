@@ -2,7 +2,6 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Crisp } from "crisp-sdk-web";
 import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "react-hot-toast";
 import { Tooltip } from "react-tooltip";
@@ -13,21 +12,24 @@ const CrispChat = () => {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (config?.crisp?.id) {
-      // Set up Crisp
-      Crisp.configure(config.crisp.id);
+    if (config?.crisp?.id && config.crisp.id.trim() !== "") {
+      // Dynamically import Crisp only when we have a valid ID
+      import("crisp-sdk-web").then(({ Crisp }) => {
+        // Set up Crisp
+        Crisp.configure(config.crisp.id);
 
-      // (Optional) If onlyShowOnRoutes array is not empty in config.js file, Crisp will be hidden on the routes in the array.
-      // Use <AppButtonSupport> instead to show it (user clicks on the button to show Crisp—it cleans the UI)
-      if (
-        config.crisp.onlyShowOnRoutes &&
-        !config.crisp.onlyShowOnRoutes?.includes(pathname)
-      ) {
-        Crisp.chat.hide();
-        Crisp.chat.onChatClosed(() => {
+        // (Optional) If onlyShowOnRoutes array is not empty in config.js file, Crisp will be hidden on the routes in the array.
+        // Use <AppButtonSupport> instead to show it (user clicks on the button to show Crisp—it cleans the UI)
+        if (
+          config.crisp.onlyShowOnRoutes &&
+          !config.crisp.onlyShowOnRoutes?.includes(pathname)
+        ) {
           Crisp.chat.hide();
-        });
-      }
+          Crisp.chat.onChatClosed(() => {
+            Crisp.chat.hide();
+          });
+        }
+      });
     }
   }, [pathname]);
 

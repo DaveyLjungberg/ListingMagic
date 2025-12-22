@@ -259,6 +259,60 @@ export default function GeneratePage() {
   }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState, descState.currentListingIdDesc]);
 
   // =========================================================================
+  // HELPER FUNCTIONS
+  // =========================================================================
+
+  /**
+   * Get credit balance for the current user
+   * Calls Supabase RPC to fetch domain + personal credits
+   */
+  const getCreditBalance = async () => {
+    if (!user?.email) {
+      return { success: false };
+    }
+
+    const { data, error } = await supabase.rpc('get_credit_balance', { 
+      user_email: user.email 
+    });
+
+    if (error) {
+      console.error('Error fetching credits:', error);
+      return { success: false, error };
+    }
+
+    return { success: true, data };
+  };
+
+  /**
+   * Refund a credit to the user (for failed generations)
+   * Calls Supabase RPC to increment credits by 1
+   */
+  const refundCredit = async () => {
+    if (!user?.email) {
+      console.warn('Cannot refund credit: user email not found');
+      return { success: false };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('increment_credits', { 
+        user_email: user.email,
+        amount: 1
+      });
+
+      if (error) {
+        console.error('Error refunding credit:', error);
+        return { success: false, error };
+      }
+
+      console.log('✅ Credit refunded successfully:', data);
+      return { success: true, data };
+    } catch (error) {
+      console.error('Exception while refunding credit:', error);
+      return { success: false, error };
+    }
+  };
+
+  // =========================================================================
   // GENERATION HANDLERS
   // =========================================================================
 
@@ -266,6 +320,19 @@ export default function GeneratePage() {
   const handleGenerateAllDesc = useCallback(async () => {
     if (!descState.isFormReadyDesc) {
       toast.error("Please upload photos and enter a complete address");
+      return;
+    }
+
+    // Check credits first (without consuming) - only charge after successful generation
+    const balanceResult = await getCreditBalance();
+    if (!balanceResult.success || (balanceResult.data?.total_credits ?? 0) === 0) {
+      toast.error(
+        <div>
+          <strong>No credits available</strong>
+          <p className="text-sm mt-1">Purchase credits to generate listings</p>
+        </div>,
+        { duration: 5000 }
+      );
       return;
     }
 
@@ -369,15 +436,17 @@ export default function GeneratePage() {
           publicRemarks: { status: "success", data: publicRemarksResult, error: null },
         }));
         publicRemarksSuccess = true;
-        toast.success("Public remarks ready! Reading background tasks...", { id: "generating-desc" });
+
+        toast.success("Public remarks ready! Running background tasks...", { id: "generating-desc" });
       } catch (error) {
+        // Generation failed - NO credit charged
         const friendlyError = getFriendlyErrorMessage(error);
         descState.setGenerationState(prev => ({
           ...prev,
           publicRemarks: { status: "error", data: null, error: friendlyError },
         }));
         toast.error(`Public remarks failed: ${friendlyError}`, { id: "generating-desc" });
-        
+
         if (isRateLimitError(error)) {
           // Stop here if rate limited
           return;
@@ -412,9 +481,25 @@ export default function GeneratePage() {
         );
       }
     } catch (error) {
-      console.error("Generation error:", error);
-      const friendlyError = getFriendlyErrorMessage(error);
-      toast.error(friendlyError, { id: "generating-desc" });
+      console.error("❌ Generation error:", error);
+      
+      // Refund the credit since generation failed
+      const refundResult = await refundCredit();
+      if (refundResult.success) {
+        toast.error("Generation failed. Credit refunded.", { 
+          id: "generating-desc",
+          duration: 5000,
+          icon: "🔄"
+        });
+      } else {
+        // If refund fails, still show error but mention refund issue
+        const friendlyError = getFriendlyErrorMessage(error);
+        toast.error(`${friendlyError}. Please contact support for credit refund.`, { 
+          id: "generating-desc",
+          duration: 6000
+        });
+      }
+      
       descState.setIsGeneratingBackground(false);
     } finally {
       // Ensure overlay is closed
@@ -534,11 +619,17 @@ export default function GeneratePage() {
             // Order photos for walkthrough (with timeout fallback)
             console.log("[Background] Ordering photos for walkthrough");
             const orderedPhotoUrls = await orderPhotosForWalkthrough(currentPhotoUrls, 15000);
-            
+
             // Auto-generate video with 4 seconds per photo
-            await video.handleGenerateVideo(orderedPhotoUrls, listingId);
+            const videoResult = await video.handleGenerateVideo(orderedPhotoUrls, listingId);
             console.log("[Background] Video generation complete");
             videoSucceeded = true;
+
+            // Save video URL to listing for future retrieval
+            if (videoResult?.video_url) {
+              await updateListing(listingId, { video_url: videoResult.video_url });
+              console.log("[Background] Video URL saved to listing");
+            }
           } catch (error) {
             console.error("[Background] Video generation failed:", error);
             // Continue to MLS generation even if video fails
@@ -891,6 +982,19 @@ export default function GeneratePage() {
     // Track listing ID for future updates
     descState.setCurrentListingIdDesc(listing.id);
 
+    // Restore video if available
+    if (listing.video_url) {
+      video.setVideoData({
+        video_url: listing.video_url,
+        duration_seconds: 0, // Duration unknown from stored listing
+        photos_used: urls.length,
+      });
+      console.log("[handleLoadDescListing] Restored video from listing:", listing.video_url);
+    } else {
+      // Clear video state if no video in listing
+      video.setVideoData(null);
+    }
+
     // Handle MLS state based on whether listing has MLS data
     if (listing.mls_data) {
       // Hydrate MLS state from the selected listing
@@ -915,7 +1019,7 @@ export default function GeneratePage() {
       mlsState.setPhotoUrlsMLS([]);
       mlsState.setAddressMLS(null);
     }
-  }, [descState, mlsState]);
+  }, [descState, mlsState, video]);
 
   // =========================================================================
   // REFINEMENT HANDLER WRAPPERS

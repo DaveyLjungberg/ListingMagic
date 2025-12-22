@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import ListingLoader from "@/components/listing-magic/ListingLoader";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NarrativeLoader from "@/components/NarrativeLoader";
 import ResultsTabs from "@/components/ResultsTabs";
+import NameListingModal from "@/components/listing-magic/NameListingModal";
 import { copyToClipboard } from "@/libs/generate-api";
 import toast from "react-hot-toast";
 
@@ -93,6 +94,16 @@ export default function DescriptionsTab({
 }) {
   // Results tab state
   const [resultsTab, setResultsTab] = useState("Public Remarks");
+  
+  // Name listing modal state
+  const [showNameModal, setShowNameModal] = useState(false);
+
+  // Auto-show modal when photos uploaded without address
+  useEffect(() => {
+    if (photosDesc.length > 0 && !addressDesc) {
+      setShowNameModal(true);
+    }
+  }, [photosDesc, addressDesc]);
 
   // Handle copy to clipboard
   const handleCopy = async (text) => {
@@ -338,6 +349,17 @@ export default function DescriptionsTab({
         />
       </main>
     </div>
+
+    {/* Name Listing Modal (Credit Gatekeeper) */}
+    <NameListingModal
+      isOpen={showNameModal}
+      onClose={() => setShowNameModal(false)}
+      onSubmit={(address) => {
+        handleAddressChangeDesc(address);
+        setShowNameModal(false);
+      }}
+      user={user}
+    />
     </>
   );
 }

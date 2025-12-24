@@ -191,15 +191,16 @@ const result = await useCredit();
 - `check_and_decrement_credits(user_email)` - Use a credit
 - `get_credit_balance(user_email)` - Get balance
 - `add_credits(owner, amount)` - Add credits (admin)
+- `increment_credits(user_email, amount)` - Refund/increment personal credits
 
 **Important - RPC Parameter Naming**: 
 When calling RPC functions from the frontend, ensure parameter names match exactly. For example:
 ```javascript
 // ✅ Correct - matches SQL function signature
-await supabase.rpc('check_and_decrement_credits', { p_user_email: user.email })
+await supabase.rpc('check_and_decrement_credits', { user_email: user.email })
 
 // ❌ Wrong - parameter name mismatch will cause RPC error
-await supabase.rpc('check_and_decrement_credits', { user_email: user.email })
+await supabase.rpc('check_and_decrement_credits', { p_user_email: user.email })
 ```
 Always verify the SQL function signature in `supabase/migrations/` and match the parameter names exactly. Add debug logs before RPC calls to troubleshoot authentication or parameter issues.
 
@@ -242,6 +243,51 @@ QuickList uses Stripe Checkout for credit purchases. Credits can be purchased fo
 - The `creditsAmount` field (1/10/50) is passed in metadata for webhook fulfillment
 
 **Note**: The credits webhook (`/api/stripe/webhook`) is separate from the legacy subscription webhook (`/api/webhook/stripe`).
+
+---
+
+## 🏠 ATTOM Tax Records API
+
+ATTOM provides property tax data (yearBuilt, lotSize, APN, county) to override AI estimates for MLS extraction.
+
+### Endpoint
+- **API Route**: `POST /api/lookup-tax-records`
+- **ATTOM Endpoint**: `GET https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/detail`
+- **Called From**: `components/listing-magic/AddressInput.jsx` (auto-fetch only)
+
+### Cost-Control Safeguards (Dec 23, 2025)
+
+| Layer | Safeguard | Details |
+|-------|-----------|---------|
+| Client | Session Cache | `taxCache` Map with normalized address key (`STREET\|CITY\|STATE\|ZIP`) |
+| Client | In-Flight Lock | `inFlightRequests` Map with AbortController - only one request per address |
+| Client | Failure Cooldown | `taxFailures` Map - 60s backoff before retrying failed addresses |
+| Client | Debounce | 800ms delay after address is complete before fetching |
+| Server | Listing Cache | Tax data stored in `address_json.taxData` in Supabase |
+
+### Auto-Fetch Flow
+1. User enters complete address (street + city + state + 5-digit ZIP)
+2. 800ms debounce to avoid fetching while typing
+3. Check client cache → if hit, use cached data (no API call)
+4. Check in-flight lock → if request pending for same address, skip
+5. Check failure cooldown → if failed < 60s ago, show message and skip
+6. If `listingId` provided → check Supabase `address_json.taxData`
+7. If no cache hit → call ATTOM API
+8. Cache result in both client Map and Supabase (if `listingId`)
+
+### Data Format
+```javascript
+{
+  apn: "1234-567-890",        // String or null
+  yearBuilt: 1985,            // Integer or null
+  lotSize: "7,500 sqft",      // String with units or null
+  county: "Los Angeles",      // String or null
+  fetchedAt: "2025-12-23..."  // ISO timestamp
+}
+```
+
+### Environment Variable
+- `ATTOM_API_KEY` - Required for tax record lookups
 
 ---
 
@@ -302,9 +348,13 @@ git push origin main
 
 ### Active Issues
 1. **Photo Categorization 503**: Non-blocking console error, doesn't affect generation
-2. **ATTOM Tax Data Inconsistency**: Sometimes returns wrong year built/lot size
 
 ### Solved Issues (Don't Re-Fix)
+- ✅ ATTOM duplicate calls → Implemented cost-control safeguards (Dec 23, 2025):
+  - Client-side cache (session memory), in-flight lock, 60s failure cooldown
+  - Server-side cache via `address_json.taxData` in Supabase
+  - Removed manual "Fetch Tax Records" button (auto-fetch only)
+  - 800ms debounce, AbortController for address changes
 - ✅ Generation timeout → Increased to 300s
 - ✅ Slow GPT-4.1 → Changed to GPT-4o
 - ✅ MLS data clearing on listing switch → Fixed handleLoadDescListing
@@ -314,7 +364,7 @@ git push origin main
 - ✅ Walkthrough script complexity → Feature removed entirely
 - ✅ Video not loading on previous listings → Added video_url to database, saved after generation, restored in handleLoadDescListing
 - ✅ Credit double-charging → Moved credit check to upfront modal gatekeeper (Dec 21, 2025)
-- ✅ RPC parameter mismatch → Fixed NameListingModal to use `p_user_email` (Dec 21, 2025)
+- ✅ RPC parameter mismatch → Fixed NameListingModal to match `user_email` signature + boolean `success` response (Dec 21, 2025)
 
 ---
 

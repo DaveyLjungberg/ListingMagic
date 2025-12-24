@@ -2,9 +2,62 @@
 
 import { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
-import { DocumentTextIcon, CheckCircleIcon, MapPinIcon } from "@heroicons/react/24/outline";
+import { DocumentTextIcon, CheckCircleIcon, MapPinIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
 
-const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hideTaxFields = false, autoFetchTaxRecords = false }, ref) => {
+// =============================================================================
+// CLIENT-SIDE TAX DATA CACHE (Module-level singleton)
+// Persists across component remounts within the same session
+// =============================================================================
+const taxCache = new Map(); // Map<addressKey, { data, fetchedAt }>
+const taxFailures = new Map(); // Map<addressKey, { lastFailedAt, error }>
+const inFlightRequests = new Map(); // Map<addressKey, AbortController>
+
+const FAILURE_COOLDOWN_MS = 60000; // 60 seconds before retrying failed address
+
+/**
+ * Normalize address into a stable cache key
+ * Format: "STREET|CITY|STATE|ZIP" (all uppercase, trimmed, collapsed whitespace)
+ */
+function normalizeAddressKey(street, city, state, zip) {
+  const normalizeStr = (s) => (s || "").trim().replace(/\s+/g, " ").toUpperCase();
+  return `${normalizeStr(street)}|${normalizeStr(city)}|${normalizeStr(state)}|${(zip || "").trim()}`;
+}
+
+/**
+ * Check if we should skip fetching due to recent failure
+ */
+function isInFailureCooldown(addressKey) {
+  const failure = taxFailures.get(addressKey);
+  if (!failure) return false;
+  const elapsed = Date.now() - failure.lastFailedAt;
+  return elapsed < FAILURE_COOLDOWN_MS;
+}
+
+/**
+ * Parse lot size to consistent format (prefer sqft as number)
+ */
+function parseLotSize(lotSize) {
+  if (!lotSize) return { display: "", numeric: null };
+
+  const str = String(lotSize);
+  // Extract numeric value
+  const numMatch = str.replace(/,/g, "").match(/[\d.]+/);
+  const numeric = numMatch ? parseFloat(numMatch[0]) : null;
+
+  return { display: str, numeric };
+}
+
+// =============================================================================
+// ADDRESS INPUT COMPONENT
+// =============================================================================
+
+const AddressInput = forwardRef(({
+  value,
+  onAddressChange,
+  disabled = false,
+  hideTaxFields = false,
+  autoFetchTaxRecords = true // Default to true - auto-fetch only
+}, ref) => {
   // Initialize from value prop if provided
   const [address, setAddressState] = useState({
     street: value?.street || "",
@@ -12,6 +65,7 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
     city: value?.city || "",
     state: value?.state || ""
   });
+
   // Initialize ZIP lookup status from value prop
   const hasInitialCityState = value?.city && value?.state;
   const [zipLookupStatus, setZipLookupStatus] = useState(hasInitialCityState ? "success" : "idle");
@@ -28,10 +82,17 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
   });
   const [loadingTaxRecords, setLoadingTaxRecords] = useState(false);
   const [taxRecordsLoaded, setTaxRecordsLoaded] = useState(hasInitialTaxData);
+  const [taxFetchError, setTaxFetchError] = useState(null); // For displaying cooldown message
 
   // Store callback in ref to avoid re-render loops
   const onAddressChangeRef = useRef(onAddressChange);
   onAddressChangeRef.current = onAddressChange;
+
+  // Track last fetched address key to prevent duplicate fetches
+  const lastFetchedAddressKey = useRef("");
+
+  // Debounce timer ref
+  const debounceTimerRef = useRef(null);
 
   // Sync internal state when value prop changes (e.g., on remount or when loading a listing)
   useEffect(() => {
@@ -59,6 +120,9 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
       }
       if (value.apn || value.yearBuilt || value.lotSize || value.county) {
         setTaxRecordsLoaded(true);
+        // Mark as already fetched to prevent re-fetch
+        const addressKey = normalizeAddressKey(newAddress.street, newAddress.city, newAddress.state, newAddress.zip);
+        lastFetchedAddressKey.current = addressKey;
       }
     }
   }, [value]);
@@ -71,9 +135,9 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
         zip_code: addressData.zip,
         city: addressData.city || undefined,
         state: addressData.state || undefined,
-        // Include tax data
+        // Include tax data - ensure consistent types
         apn: taxInfo?.apn || undefined,
-        yearBuilt: taxInfo?.yearBuilt || undefined,
+        yearBuilt: taxInfo?.yearBuilt ? String(taxInfo.yearBuilt) : undefined,
         lotSize: taxInfo?.lotSize || undefined,
         county: taxInfo?.county || undefined,
       });
@@ -104,6 +168,116 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
     });
   }, [notifyParent, address]);
 
+  // =============================================================================
+  // AUTO-FETCH TAX RECORDS (with cache, dedupe, abort, cooldown)
+  // =============================================================================
+
+  const fetchTaxRecords = useCallback(async (addressData) => {
+    const { street, city, state, zip } = addressData;
+
+    // Validate address is complete
+    if (!street || !city || !state || !zip || zip.length !== 5) {
+      return null;
+    }
+
+    const addressKey = normalizeAddressKey(street, city, state, zip);
+
+    // SAFEGUARD 1: Check client-side cache first
+    const cached = taxCache.get(addressKey);
+    if (cached) {
+      console.log('[TaxCache] Using cached data for:', addressKey);
+      return cached.data;
+    }
+
+    // SAFEGUARD 2: Check if we already fetched this address
+    if (lastFetchedAddressKey.current === addressKey) {
+      console.log('[TaxCache] Already fetched this address, skipping:', addressKey);
+      return null;
+    }
+
+    // SAFEGUARD 3: Check failure cooldown
+    if (isInFailureCooldown(addressKey)) {
+      const failure = taxFailures.get(addressKey);
+      const remainingSec = Math.ceil((FAILURE_COOLDOWN_MS - (Date.now() - failure.lastFailedAt)) / 1000);
+      console.log(`[TaxCache] In failure cooldown (${remainingSec}s remaining):`, addressKey);
+      setTaxFetchError(`Tax data unavailable. Will retry when address changes.`);
+      return null;
+    }
+
+    // SAFEGUARD 4: Check if request already in flight
+    if (inFlightRequests.has(addressKey)) {
+      console.log('[TaxCache] Request already in flight for:', addressKey);
+      return null;
+    }
+
+    // Create AbortController for this request
+    const abortController = new AbortController();
+    inFlightRequests.set(addressKey, abortController);
+
+    setLoadingTaxRecords(true);
+    setTaxFetchError(null);
+
+    try {
+      console.log('[AutoFetch] Fetching tax records for:', addressKey);
+
+      const res = await fetch('/api/lookup-tax-records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: street, city, state, zip }),
+        signal: abortController.signal
+      });
+
+      const result = await res.json();
+
+      if (result.success && result.data) {
+        // Normalize the data
+        const lotSizeParsed = parseLotSize(result.data.lotSize);
+        const normalizedData = {
+          apn: result.data.apn || "",
+          yearBuilt: result.data.yearBuilt ? parseInt(result.data.yearBuilt, 10) : null,
+          lotSize: lotSizeParsed.display,
+          lotSizeNumeric: lotSizeParsed.numeric,
+          county: result.data.county || "",
+          // Additional fields from ATTOM
+          bedrooms: result.data.bedrooms || null,
+          bathrooms: result.data.bathrooms || null,
+          buildingSqft: result.data.buildingSqft || null,
+          propertyType: result.data.propertyType || null,
+        };
+
+        // CACHE: Store successful result
+        taxCache.set(addressKey, { data: normalizedData, fetchedAt: Date.now() });
+        lastFetchedAddressKey.current = addressKey;
+
+        // Clear any previous failure for this address
+        taxFailures.delete(addressKey);
+
+        console.log('[AutoFetch] Tax records cached:', normalizedData);
+        return normalizedData;
+      } else {
+        // Record failure for cooldown
+        taxFailures.set(addressKey, { lastFailedAt: Date.now(), error: result.error });
+        console.log('[AutoFetch] Tax records not found:', result.error);
+        setTaxFetchError("Tax data unavailable — will retry if address changes.");
+        return null;
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('[AutoFetch] Request aborted for:', addressKey);
+        return null;
+      }
+
+      // Record failure for cooldown
+      taxFailures.set(addressKey, { lastFailedAt: Date.now(), error: error.message });
+      console.log('[AutoFetch] Tax fetch failed:', error.message);
+      setTaxFetchError("Tax data unavailable — will retry if address changes.");
+      return null;
+    } finally {
+      inFlightRequests.delete(addressKey);
+      setLoadingTaxRecords(false);
+    }
+  }, []);
+
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
     getAddress: () => ({
@@ -118,8 +292,15 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
       county: taxData.county || undefined,
     }),
     getTaxData: () => {
-      console.log('[AddressInput] getTaxData called, returning:', taxData);
-      return taxData;
+      // Return null-safe tax data object
+      const safeData = {
+        apn: taxData.apn || null,
+        yearBuilt: taxData.yearBuilt ? String(taxData.yearBuilt) : null,
+        lotSize: taxData.lotSize || null,
+        county: taxData.county || null,
+      };
+      console.log('[AddressInput] getTaxData called, returning:', safeData);
+      return safeData;
     },
     isValid: () => Boolean(address.street && address.zip.length === 5),
     clearAddress: () => {
@@ -130,7 +311,9 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
       setZipLookupStatus("idle");
       setZipError(null);
       setTaxRecordsLoaded(false);
+      setTaxFetchError(null);
       lastLookedUpZip.current = "";
+      lastFetchedAddressKey.current = "";
       // Notify parent to clear persisted state
       notifyParent(emptyAddress, emptyTaxData);
     },
@@ -143,7 +326,7 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
       };
       setAddressState(addressData);
 
-      // Set tax data if provided
+      // Set tax data if provided (e.g., from loaded listing)
       const newTaxData = {
         apn: newAddress.apn || "",
         yearBuilt: newAddress.yearBuilt || "",
@@ -151,8 +334,12 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
         county: newAddress.county || "",
       };
       setTaxData(newTaxData);
+
       if (newAddress.apn || newAddress.yearBuilt || newAddress.lotSize || newAddress.county) {
         setTaxRecordsLoaded(true);
+        // Mark as already fetched
+        const addressKey = normalizeAddressKey(addressData.street, addressData.city, addressData.state, addressData.zip);
+        lastFetchedAddressKey.current = addressKey;
       }
 
       if (newAddress.zip_code && newAddress.city) {
@@ -161,60 +348,18 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
       }
       // Notify parent
       notifyParent(addressData, newTaxData);
+    },
+    // Expose cache check for external use
+    hasCachedTaxData: () => {
+      const addressKey = normalizeAddressKey(address.street, address.city, address.state, address.zip);
+      return taxCache.has(addressKey);
     }
   }), [address, taxData, notifyParent]);
 
-  // Fetch tax records from ATTOM API
-  const handleFetchTaxRecords = async () => {
-    if (!address.street || !address.city || !address.state || !address.zip) {
-      toast.error("Please enter complete address first");
-      return;
-    }
+  // =============================================================================
+  // ZIP CODE LOOKUP (Zippopotam.us API)
+  // =============================================================================
 
-    setLoadingTaxRecords(true);
-
-    try {
-      const res = await fetch('/api/lookup-tax-records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          address: address.street,
-          city: address.city,
-          state: address.state,
-          zip: address.zip
-        })
-      });
-
-      const result = await res.json();
-
-      if (result.success && result.data) {
-        const newTaxData = {
-          apn: result.data.apn || "",
-          yearBuilt: result.data.yearBuilt?.toString() || "",
-          lotSize: result.data.lotSize || "",
-          county: result.data.county || "",
-        };
-        setTaxData(newTaxData);
-        setTaxRecordsLoaded(true);
-
-        // Notify parent with updated data
-        notifyParent(address, newTaxData);
-
-        toast.success('Tax records loaded!');
-        console.log("[Tax Records] Loaded:", result.data);
-      } else {
-        toast.error(result.error || 'Tax records not found - enter manually');
-        console.log("[Tax Records] Not found:", result.error);
-      }
-    } catch (error) {
-      console.error('Tax lookup error:', error);
-      toast.error('Failed to fetch tax records');
-    } finally {
-      setLoadingTaxRecords(false);
-    }
-  };
-
-  // Lookup city/state from ZIP code using Zippopotam.us API
   useEffect(() => {
     const lookupZip = async (zip) => {
       // Skip if we already looked up this ZIP
@@ -270,7 +415,7 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
     if (address.zip.length === 5) {
       lookupZip(address.zip);
     } else if (address.zip.length < 5) {
-      // Clear city/state when ZIP is incomplete - use internal state only
+      // Clear city/state when ZIP is incomplete
       if (address.city || address.state) {
         setAddressState(prev => ({ ...prev, city: "", state: "" }));
       }
@@ -280,72 +425,95 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
     }
   }, [address.zip, notifyParent, taxData]);
 
-  // Clear tax data when address changes significantly
+  // =============================================================================
+  // AUTO-FETCH TAX RECORDS EFFECT (with debounce)
+  // =============================================================================
+
+  const canFetchTaxRecords = address.street && address.city && address.state && address.zip.length === 5;
+
+  useEffect(() => {
+    // Only auto-fetch if enabled
+    if (!autoFetchTaxRecords) return;
+
+    // Don't fetch if address is incomplete
+    if (!canFetchTaxRecords) return;
+
+    // Don't fetch if already loaded (from prop or previous fetch)
+    if (taxRecordsLoaded) return;
+
+    // Don't fetch if currently loading
+    if (loadingTaxRecords) return;
+
+    // Clear any pending debounce
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // SAFEGUARD: Debounce to avoid fetching while user is still typing (800ms)
+    debounceTimerRef.current = setTimeout(async () => {
+      const result = await fetchTaxRecords(address);
+
+      if (result) {
+        const newTaxData = {
+          apn: result.apn || "",
+          yearBuilt: result.yearBuilt ? String(result.yearBuilt) : "",
+          lotSize: result.lotSize || "",
+          county: result.county || "",
+        };
+        setTaxData(newTaxData);
+        setTaxRecordsLoaded(true);
+        notifyParent(address, newTaxData);
+      }
+    }, 800); // 800ms debounce
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [autoFetchTaxRecords, canFetchTaxRecords, taxRecordsLoaded, loadingTaxRecords, address, fetchTaxRecords, notifyParent]);
+
+  // =============================================================================
+  // ABORT IN-FLIGHT REQUEST WHEN ADDRESS CHANGES
+  // =============================================================================
+
+  useEffect(() => {
+    return () => {
+      // On unmount or address change, abort any in-flight request for old address
+      const addressKey = normalizeAddressKey(address.street, address.city, address.state, address.zip);
+      const controller = inFlightRequests.get(addressKey);
+      if (controller) {
+        controller.abort();
+        inFlightRequests.delete(addressKey);
+      }
+    };
+  }, [address.street, address.city, address.state, address.zip]);
+
+  // Reset tax state when address changes significantly
   useEffect(() => {
     if (taxRecordsLoaded && address.street === "") {
       setTaxData({ apn: "", yearBuilt: "", lotSize: "", county: "" });
       setTaxRecordsLoaded(false);
+      setTaxFetchError(null);
+      lastFetchedAddressKey.current = "";
     }
   }, [address.street, taxRecordsLoaded]);
 
-  const canFetchTaxRecords = address.street && address.city && address.state && address.zip.length === 5;
-
-  // Auto-fetch tax records when address is complete (silent background fetch)
-  const hasAttemptedAutoFetch = useRef(false);
+  // When address changes significantly, reset tax loaded state to allow re-fetch
   useEffect(() => {
-    if (!autoFetchTaxRecords) return;
-    if (!canFetchTaxRecords) return;
-    if (taxRecordsLoaded) return;
-    if (hasAttemptedAutoFetch.current) return;
-    if (loadingTaxRecords) return;
-
-    // Debounce to avoid fetching while user is still typing
-    const timeoutId = setTimeout(async () => {
-      hasAttemptedAutoFetch.current = true;
-      console.log('[AutoFetch] Address complete, fetching tax records silently...');
-
-      try {
-        const res = await fetch('/api/lookup-tax-records', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            address: address.street,
-            city: address.city,
-            state: address.state,
-            zip: address.zip
-          })
-        });
-
-        const result = await res.json();
-
-        if (result.success && result.data) {
-          const newTaxData = {
-            apn: result.data.apn || "",
-            yearBuilt: result.data.yearBuilt?.toString() || "",
-            lotSize: result.data.lotSize || "",
-            county: result.data.county || "",
-          };
-          setTaxData(newTaxData);
-          setTaxRecordsLoaded(true);
-          notifyParent(address, newTaxData);
-          console.log('[AutoFetch] Tax records loaded silently:', result.data);
-        } else {
-          console.log('[AutoFetch] Tax records not found, will use AI estimates');
-        }
-      } catch (error) {
-        console.log('[AutoFetch] Tax fetch failed silently:', error.message);
+    const currentKey = normalizeAddressKey(address.street, address.city, address.state, address.zip);
+    if (lastFetchedAddressKey.current && currentKey !== lastFetchedAddressKey.current) {
+      // Address changed - reset for potential new fetch
+      if (taxRecordsLoaded && !taxCache.has(currentKey)) {
+        setTaxRecordsLoaded(false);
+        setTaxFetchError(null);
       }
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [autoFetchTaxRecords, canFetchTaxRecords, taxRecordsLoaded, loadingTaxRecords, address, notifyParent]);
-
-  // Reset auto-fetch flag when address changes significantly
-  useEffect(() => {
-    if (!address.street || !address.zip) {
-      hasAttemptedAutoFetch.current = false;
     }
-  }, [address.street, address.zip]);
+  }, [address.street, address.city, address.state, address.zip, taxRecordsLoaded]);
+
+  // =============================================================================
+  // RENDER
+  // =============================================================================
 
   return (
     <div className={`space-y-4 ${disabled ? 'opacity-60' : ''}`}>
@@ -461,25 +629,10 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
               <label className="text-sm font-semibold text-primary-navy flex items-center gap-1.5">
                 <DocumentTextIcon className="w-4 h-4" />
                 Tax Records
-              </label>
-              <button
-                type="button"
-                onClick={handleFetchTaxRecords}
-                disabled={disabled || !canFetchTaxRecords || loadingTaxRecords}
-                className="btn btn-xs btn-gold gap-1.5"
-              >
-                {loadingTaxRecords ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs"></span>
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <DocumentTextIcon className="w-3.5 h-3.5" />
-                    Fetch Tax Records
-                  </>
+                {loadingTaxRecords && (
+                  <span className="loading loading-spinner loading-xs text-primary ml-2"></span>
                 )}
-              </button>
+              </label>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -540,17 +693,24 @@ const AddressInput = forwardRef(({ value, onAddressChange, disabled = false, hid
               </div>
             </div>
 
+            {/* Status messages */}
             {taxRecordsLoaded && (
               <p className="text-xs mt-2 flex items-center gap-1.5 badge-success-custom px-2 py-1 rounded-md w-fit animate-bounce-in">
                 <CheckCircleIcon className="w-3.5 h-3.5" />
                 Tax records loaded - all fields are editable
               </p>
             )}
-            {!taxRecordsLoaded && !loadingTaxRecords && (
+            {taxFetchError && !taxRecordsLoaded && !loadingTaxRecords && (
+              <p className="text-xs mt-2 flex items-center gap-1.5 text-warning">
+                <ExclamationCircleIcon className="w-3.5 h-3.5" />
+                {taxFetchError}
+              </p>
+            )}
+            {!taxRecordsLoaded && !loadingTaxRecords && !taxFetchError && (
               <p className="text-xs text-primary-muted mt-2">
                 {canFetchTaxRecords
-                  ? "Click 'Fetch Tax Records' to auto-fill from public records"
-                  : "Complete address above to fetch tax records"}
+                  ? "Fetching tax records automatically..."
+                  : "Complete address above to auto-fetch tax records"}
               </p>
             )}
           </div>

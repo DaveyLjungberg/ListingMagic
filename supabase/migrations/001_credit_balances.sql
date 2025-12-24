@@ -189,6 +189,44 @@ BEGIN
 END;
 $$;
 
+-- 6b. RPC Function: Increment personal credits (refund mechanism)
+-- Intended for refunding a credit to the authenticated user's personal balance.
+-- NOTE: This increments the *personal* (email) owner_identifier, not the domain pool.
+CREATE OR REPLACE FUNCTION increment_credits(user_email TEXT, amount INTEGER)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  new_balance INTEGER;
+  owner_identifier TEXT;
+BEGIN
+  IF user_email IS NULL OR btrim(user_email) = '' THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Invalid user_email');
+  END IF;
+
+  IF amount IS NULL OR amount <= 0 THEN
+    RETURN jsonb_build_object('success', false, 'message', 'Amount must be positive');
+  END IF;
+
+  owner_identifier := lower(btrim(user_email));
+
+  -- Insert or update personal credits for this email
+  INSERT INTO credit_balances (owner_identifier, credits)
+  VALUES (owner_identifier, amount)
+  ON CONFLICT (owner_identifier)
+  DO UPDATE SET credits = credit_balances.credits + amount
+  RETURNING credits INTO new_balance;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'owner', owner_identifier,
+    'credits_added', amount,
+    'new_balance', new_balance
+  );
+END;
+$$;
+
 -- 7. Row Level Security (RLS)
 ALTER TABLE credit_balances ENABLE ROW LEVEL SECURITY;
 

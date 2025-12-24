@@ -202,8 +202,11 @@ async def endpoint_name(request: RequestModel):
 - ✅ Walkthrough complexity → Feature removed (silent videos only)
 - ✅ Video not persisting → video_url saved to database, restored on listing load
 - ✅ Credit double-charging → Moved to upfront gatekeeper modal (Dec 21, 2025)
+- ✅ ATTOM duplicate API calls → Implemented cost-control (Dec 23, 2025):
+  - Client-side: session cache, in-flight lock, 60s failure cooldown, 800ms debounce
+  - Server-side: cached in `address_json.taxData`, checks before calling ATTOM
+  - Auto-fetch only (removed manual button)
 - ⚠️ Photo categorization 503 → Non-blocking, low priority
-- ⚠️ ATTOM tax data inconsistent → User can manually edit
 
 ## Stripe Credit Purchases
 
@@ -242,6 +245,53 @@ Backend/Server:
 **Important**: Stripe Prices must be configured as per-pack prices (not per-credit). Frontend always sends `quantity: 1` to Stripe; the `creditsAmount` field determines how many credits are granted via webhook.
 
 **Note**: Credits webhook (`/api/stripe/webhook`) is separate from legacy subscription webhook (`/api/webhook/stripe`).
+
+## Credits: Generation + Refunds
+
+**Credit Consumption**:
+- Gatekeeper modal (`components/listing-magic/NameListingModal.jsx`) decrements credits via RPC **before** generation starts.
+- RPC: `check_and_decrement_credits(user_email text)` → returns JSON with `{ success, source, remaining, message }`
+
+**Credit Refunds (Failed Generations)**:
+- If generation fails after a credit was consumed, the UI refunds 1 personal credit via RPC:
+  - `increment_credits(user_email text, amount int)` with `{ user_email: user.email, amount: 1 }`
+- User-facing toast: `"Generation failed. Credit refunded."`
+
+**Important - RPC Parameter Naming**:
+- RPC args must match SQL signature keys exactly (e.g., `{ user_email: user.email }`).
+
+## ATTOM Tax Records API
+
+ATTOM provides property tax data (yearBuilt, lotSize, APN, county) to override AI estimates.
+
+**Endpoint**: `POST /api/lookup-tax-records`
+**ATTOM API**: `GET https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/detail`
+
+**Cost-Control Safeguards** (implemented Dec 23, 2025):
+
+| Layer | Safeguard | Implementation |
+|-------|-----------|----------------|
+| Client | Session cache | `taxCache` Map - normalized address key |
+| Client | In-flight lock | `inFlightRequests` Map with AbortController |
+| Client | Failure cooldown | 60s backoff before retrying failed address |
+| Client | Debounce | 800ms delay before auto-fetch |
+| Server | Listing cache | `address_json.taxData` in Supabase |
+
+**Flow**:
+1. Address complete → 800ms debounce
+2. Check client cache → if hit, use cached data
+3. Check in-flight lock → if request pending, skip
+4. Check failure cooldown → if failed < 60s ago, skip
+5. If `listingId` provided → check Supabase cache
+6. If no cache → call ATTOM API
+7. Cache result in client + Supabase (if `listingId`)
+
+**Environment Variable**: `ATTOM_API_KEY`
+
+**Data Format**:
+- `yearBuilt`: Integer or null (e.g., `1985`)
+- `lotSize`: String with units (e.g., `"7,500 sqft"`)
+- `apn`, `county`: String or null
 
 ## Environment
 

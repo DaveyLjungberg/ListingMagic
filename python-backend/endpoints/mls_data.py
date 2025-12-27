@@ -1,6 +1,13 @@
 """
 MLS Data Extraction Endpoint for Listing Magic
-Extracts 22 MLS fields from property photos using AI vision models
+
+Extracts 22 MLS fields from property photos using AI vision models.
+
+Uses unified AI generation service:
+- Primary: OpenAI gpt-5.2
+- Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+
+The frontend does not know which provider was used.
 """
 
 import logging
@@ -14,9 +21,12 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-import anthropic
-import openai
-import google.generativeai as genai
+from services.ai_generation_service import (
+    generate_content_with_fallback,
+    clean_json_response,
+    OPENAI_MODEL,
+    GEMINI_MODEL
+)
 
 logger = logging.getLogger(__name__)
 
@@ -204,84 +214,17 @@ def strip_base64_prefix(img_b64: str) -> str:
 
 
 # =============================================================================
-# AI Model Extractors
+# MLS Extraction System Prompt
 # =============================================================================
 
-async def extract_with_gemini(images: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using Google Gemini."""
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    model = genai.GenerativeModel("gemini-2.0-flash-exp")
-
-    # Prepare image parts
-    image_parts = []
-    for img_b64 in images:
-        clean_b64 = strip_base64_prefix(img_b64)
-        image_parts.append({
-            "mime_type": "image/jpeg",
-            "data": clean_b64
-        })
-
-    # Generate content
-    response = model.generate_content([prompt] + image_parts)
-    response_text = clean_json_response(response.text)
-
-    return json.loads(response_text)
-
-
-async def extract_with_gpt(images: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using GPT-4 Vision."""
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    # Prepare image content
-    content = [{"type": "text", "text": prompt}]
-    for img_b64 in images:
-        if not img_b64.startswith("data:"):
-            img_b64 = f"data:image/jpeg;base64,{strip_base64_prefix(img_b64)}"
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": img_b64}
-        })
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": content}],
-        max_tokens=2000
-    )
-
-    response_text = clean_json_response(response.choices[0].message.content)
-    return json.loads(response_text)
-
-
-async def extract_with_claude(images: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using Claude Sonnet."""
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-    # Prepare image content
-    content = []
-    for img_b64 in images:
-        clean_b64 = strip_base64_prefix(img_b64)
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": clean_b64
-            }
-        })
-    content.append({"type": "text", "text": prompt})
-
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": content}]
-    )
-
-    response_text = clean_json_response(response.content[0].text)
-    return json.loads(response_text)
+MLS_SYSTEM_PROMPT = """You are an expert real estate data extraction assistant.
+Your task is to analyze property photos and extract MLS-compliant data fields accurately.
+Be conservative in your estimates - only report what you can clearly see.
+Return data as valid JSON matching the exact structure provided in the user prompt."""
 
 
 # =============================================================================
-# Main Endpoint
+# Main Endpoint (Base64 images - legacy, kept for backward compatibility)
 # =============================================================================
 
 @router.post("/api/generate-mls-data", response_model=MLSDataResponse)
@@ -289,49 +232,56 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
     """
     Extract MLS fields from property photos using AI vision models.
 
-    Analyzes property photos to extract 22 MLS-compliant fields including:
-    - Property type, bedrooms, bathrooms
-    - Flooring, appliances, interior features
-    - Exterior materials, roof type, parking
-    - Room dimensions and layout
-    - Estimated square footage and year built
+    Uses unified AI generation service:
+    - Primary: OpenAI gpt-5.2
+    - Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
 
-    **Models available:**
-    - `claude` (default): Best accuracy, handles many photos well
-    - `gpt`: Good for complex photos
-    - `gemini`: Fastest option
+    Note: The 'model' parameter is ignored - unified service handles model selection.
+    This endpoint accepts base64 images for backward compatibility.
+    Prefer using /api/generate-mls-data-urls with photo URLs instead.
     """
     start_time = time.time()
 
-    logger.info(f"Generating MLS data for: {request.address}, model: {request.model}")
-    logger.info(f"Processing {len(request.images)} images")
+    logger.info(f"Generating MLS data for: {request.address}")
+    logger.info(f"Processing {len(request.images)} base64 images")
 
     try:
         prompt = MLS_EXTRACTION_PROMPT.format(address=request.address)
 
-        # Select extraction function based on model
-        extractors = {
-            "gemini": extract_with_gemini,
-            "gpt": extract_with_gpt,
-            "claude": extract_with_claude
-        }
+        # Convert base64 images to data URLs for the unified service
+        photo_urls = []
+        for img_b64 in request.images:
+            clean_b64 = strip_base64_prefix(img_b64)
+            data_url = f"data:image/jpeg;base64,{clean_b64}"
+            photo_urls.append(data_url)
 
-        if request.model not in extractors:
+        # Generate using unified service with fallback
+        result = await generate_content_with_fallback(
+            system_prompt=MLS_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            photo_urls=photo_urls,
+            task_type="mls",
+            temperature=0.2,
+            max_output_tokens=2500
+        )
+
+        if not result.success:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid model '{request.model}'. Must be one of: gemini, gpt, claude"
+                status_code=500,
+                detail=f"AI generation failed: {result.error}"
             )
 
-        extractor = extractors[request.model]
-        mls_data = await extractor(request.images, prompt)
+        # Parse JSON response
+        response_text = clean_json_response(result.content)
+        mls_data = json.loads(response_text)
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Build response
+        # Build response with provider metadata
         return MLSDataResponse(
             success=True,
-            model_used=request.model,
+            model_used=result.model_used,
             processing_time_ms=processing_time_ms,
             photos_analyzed=len(request.images),
             **mls_data
@@ -343,6 +293,8 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
             status_code=500,
             detail="AI returned invalid JSON response. Please try again."
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"MLS extraction failed: {e}", exc_info=True)
         raise HTTPException(
@@ -352,125 +304,7 @@ async def generate_mls_data(request: MLSDataRequest) -> MLSDataResponse:
 
 
 # =============================================================================
-# URL-based Extraction Functions
-# =============================================================================
-
-async def download_image_as_base64(url: str) -> Dict[str, str]:
-    """Download an image from URL and convert to base64 with media type.
-
-    Returns:
-        Dict with 'data' (base64 string) and 'media_type' (content type)
-    """
-    # Strip whitespace/newlines from URL
-    url = url.strip()
-
-    # Use browser-like headers to avoid 400 errors
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
-    async with httpx.AsyncClient(headers=headers) as client:
-        response = await client.get(url, timeout=30.0)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to download image from {url}: {e.response.status_code} - {e.response.text}")
-            raise
-
-        # Get media type from response headers, fallback to image/jpeg
-        media_type = response.headers.get("content-type", "image/jpeg")
-        # Clean up media type (remove charset and other parameters)
-        if ";" in media_type:
-            media_type = media_type.split(";")[0].strip()
-
-        return {
-            "data": base64.b64encode(response.content).decode("utf-8"),
-            "media_type": media_type
-        }
-
-
-async def extract_with_claude_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using Claude with photo URLs."""
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-    # Build content with image URLs
-    content = []
-    for url in photo_urls:
-        # Download and convert to base64 for Claude
-        try:
-            img_data = await download_image_as_base64(url)
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": img_data["media_type"],
-                    "data": img_data["data"]
-                }
-            })
-        except Exception as e:
-            logger.warning(f"Failed to download image {url}: {e}")
-            continue
-
-    content.append({"type": "text", "text": prompt})
-
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": content}]
-    )
-
-    response_text = clean_json_response(response.content[0].text)
-    return json.loads(response_text)
-
-
-async def extract_with_gpt_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using GPT-4 Vision with photo URLs."""
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    # GPT-4 Vision can use URLs directly
-    content = [{"type": "text", "text": prompt}]
-    for url in photo_urls:
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": url}
-        })
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": content}],
-        max_tokens=2000
-    )
-
-    response_text = clean_json_response(response.choices[0].message.content)
-    return json.loads(response_text)
-
-
-async def extract_with_gemini_urls(photo_urls: List[str], prompt: str) -> Dict[str, Any]:
-    """Extract MLS data using Gemini with photo URLs."""
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    model = genai.GenerativeModel("gemini-2.0-flash-exp")
-
-    # Download images and convert to base64 for Gemini
-    image_parts = []
-    for url in photo_urls:
-        try:
-            img_data = await download_image_as_base64(url)
-            image_parts.append({
-                "mime_type": img_data["media_type"],
-                "data": img_data["data"]
-            })
-        except Exception as e:
-            logger.warning(f"Failed to download image {url}: {e}")
-            continue
-
-    response = model.generate_content([prompt] + image_parts)
-    response_text = clean_json_response(response.text)
-
-    return json.loads(response_text)
-
-
-# =============================================================================
-# URL-based Endpoint
+# URL-based Endpoint (Primary - uses unified service with fallback)
 # =============================================================================
 
 @router.post("/api/generate-mls-data-urls", response_model=MLSDataResponse)
@@ -478,41 +312,44 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
     """
     Extract MLS fields from property photos using photo URLs.
 
-    This endpoint accepts public URLs to photos instead of base64 data,
-    which bypasses payload size limits and is more efficient for large uploads.
+    Uses unified AI generation service:
+    - Primary: OpenAI gpt-5.2
+    - Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+
+    The 'model' parameter is ignored - unified service handles model selection.
+    The frontend does not know which provider was used.
 
     If tax_data is provided (from ATTOM API), those values will override
     AI estimates for year_built, lot_size, etc.
-
-    **Models available:**
-    - `claude` (default): Best accuracy, handles many photos well
-    - `gpt`: Good for complex photos (supports URLs directly)
-    - `gemini`: Fastest option
     """
     start_time = time.time()
 
-    logger.info(f"Generating MLS data from URLs for: {request.address}, model: {request.model}")
+    logger.info(f"Generating MLS data from URLs for: {request.address}")
     logger.info(f"Processing {len(request.photo_urls)} photo URLs")
     logger.info(f"[MLS Gen Backend] Received tax_data: {request.tax_data}")
 
     try:
         prompt = MLS_EXTRACTION_PROMPT.format(address=request.address)
 
-        # Select extraction function based on model
-        extractors = {
-            "gemini": extract_with_gemini_urls,
-            "gpt": extract_with_gpt_urls,
-            "claude": extract_with_claude_urls
-        }
+        # Generate using unified service with fallback
+        result = await generate_content_with_fallback(
+            system_prompt=MLS_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            photo_urls=request.photo_urls,
+            task_type="mls",
+            temperature=0.2,
+            max_output_tokens=2500
+        )
 
-        if request.model not in extractors:
+        if not result.success:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid model '{request.model}'. Must be one of: gemini, gpt, claude"
+                status_code=500,
+                detail=f"AI generation failed: {result.error}"
             )
 
-        extractor = extractors[request.model]
-        mls_data = await extractor(request.photo_urls, prompt)
+        # Parse JSON response
+        response_text = clean_json_response(result.content)
+        mls_data = json.loads(response_text)
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
@@ -535,7 +372,6 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
 
             # APN/Tax ID - official identifier (store in confidence_scores for now)
             if request.tax_data.apn:
-                # Add to mls_data (not a standard field but useful)
                 if mls_data.get("confidence_scores") is None:
                     mls_data["confidence_scores"] = {}
                 mls_data["confidence_scores"]["apn"] = "high"
@@ -547,10 +383,10 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
                 tax_data_applied["county"] = True
                 logger.info(f"[Override] County: {request.tax_data.county}")
 
-        # Build response
+        # Build response with provider metadata
         return MLSDataResponse(
             success=True,
-            model_used=request.model,
+            model_used=result.model_used,  # Returns actual model used (gpt-5.2 or gemini-2.0-flash)
             processing_time_ms=processing_time_ms,
             photos_analyzed=len(request.photo_urls),
             tax_data_applied=tax_data_applied if tax_data_applied else None,
@@ -563,6 +399,8 @@ async def generate_mls_data_from_urls(request: MLSDataURLsRequest) -> MLSDataRes
             status_code=500,
             detail="AI returned invalid JSON response. Please try again."
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"MLS extraction from URLs failed: {e}", exc_info=True)
         raise HTTPException(

@@ -86,6 +86,9 @@ export default function GeneratePage() {
   // Content refinement
   const refinement = useRefinement();
 
+  // Generation attempt tracking (for idempotent refunds)
+  const [currentAttemptId, setCurrentAttemptId] = useState(null);
+
   // =========================================================================
   // AUTO-SAVE EFFECTS
   // =========================================================================
@@ -132,6 +135,7 @@ export default function GeneratePage() {
               yearBuilt: descState.addressDesc.yearBuilt || null,
               lotSize: descState.addressDesc.lotSize || null,
               county: descState.addressDesc.county || null,
+              attempt_id: currentAttemptId,
             },
             property_type: "single_family",
             bedrooms: mlsState.mlsData?.mls_fields?.bedrooms || null,
@@ -170,6 +174,7 @@ export default function GeneratePage() {
     descState,
     mlsState.mlsData,
     mlsState,
+    currentAttemptId,
   ]);
 
   // Auto-save or update MLS data
@@ -229,6 +234,7 @@ export default function GeneratePage() {
                 yearBuilt: mlsState.addressMLS.yearBuilt || null,
                 lotSize: mlsState.addressMLS.lotSize || null,
                 county: mlsState.addressMLS.county || null,
+                attempt_id: currentAttemptId,
               },
               property_type: "single_family",
               bedrooms: mlsState.mlsData.mls_fields?.bedrooms || null,
@@ -256,7 +262,7 @@ export default function GeneratePage() {
         autoSaveMLS();
       }
     }
-  }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState, descState.currentListingIdDesc]);
+  }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState, descState.currentListingIdDesc, currentAttemptId]);
 
   // =========================================================================
   // HELPER FUNCTIONS
@@ -284,27 +290,94 @@ export default function GeneratePage() {
   };
 
   /**
-   * Refund a credit to the user (for failed generations)
-   * Calls Supabase RPC to increment credits by 1
+   * Helper to log actionable RPC error details
    */
-  const refundCredit = async () => {
+  const logRpcError = (rpcName, params, error, status, statusText) => {
+    console.error(`[page.jsx] RPC '${rpcName}' failed:`, {
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      status,
+      statusText,
+      paramKeys: Object.keys(params),
+    });
+  };
+
+  /**
+   * Refund a credit to the user (for failed generations)
+   * Uses idempotent refund_credit_attempt RPC with attempt_id
+   * @param {string} attemptId - UUID of the generation attempt
+   */
+  const refundCredit = async (attemptId) => {
     if (!user?.email) {
       console.warn('Cannot refund credit: user email not found');
       return { success: false };
     }
 
+    if (!attemptId) {
+      console.warn('Cannot refund credit: no attempt_id provided');
+      // Fall back to legacy increment_credits for safety
+      try {
+        const params = { user_email: user.email, amount: 1 };
+        const { data, error, status, statusText } = await supabase.rpc('increment_credits', params);
+
+        if (error) {
+          logRpcError('increment_credits', params, error, status, statusText);
+          return { success: false, error };
+        }
+
+        console.log('✅ Credit refunded successfully (legacy):', data);
+        return { success: true, data };
+      } catch (error) {
+        console.error('Exception while refunding credit (legacy):', error);
+        return { success: false, error };
+      }
+    }
+
     try {
-      const { data, error } = await supabase.rpc('increment_credits', { 
+      // Use idempotent refund RPC with attempt_id
+      const params = {
         user_email: user.email,
+        attempt_id: attemptId,
         amount: 1
-      });
+      };
+      const { data, error, status, statusText } = await supabase.rpc('refund_credit_attempt', params);
 
       if (error) {
-        console.error('Error refunding credit:', error);
+        const errorCode = error?.code;
+
+        // Only fall back to legacy RPC if the function is missing (PGRST202)
+        if (errorCode === "PGRST202") {
+          console.warn(
+            "[refundCredit] refund_credit_attempt not found (PGRST202). Falling back to legacy increment_credits."
+          );
+          const legacyParams = { user_email: user.email, amount: 1 };
+          const legacy = await supabase.rpc('increment_credits', legacyParams);
+          
+          if (legacy.error) {
+            logRpcError('increment_credits', legacyParams, legacy.error, legacy.status, legacy.statusText);
+            return { success: false, error: legacy.error };
+          }
+          return { success: true, data: legacy.data };
+        }
+
+        // RPC exists but returned an error - log it and surface to user
+        logRpcError('refund_credit_attempt', params, error, status, statusText);
+        
+        // Show user-facing error toast with code if available
+        const errorMsg = errorCode ? `Credit refund failed (${errorCode})` : "Credit refund failed";
+        toast.error(errorMsg, { duration: 5000 });
+        
         return { success: false, error };
       }
 
-      console.log('✅ Credit refunded successfully:', data);
+      if (data.already_refunded) {
+        console.log('⚠️ Credit was already refunded for this attempt:', data);
+      } else {
+        console.log('✅ Credit refunded successfully:', data);
+      }
+      
       return { success: true, data };
     } catch (error) {
       console.error('Exception while refunding credit:', error);
@@ -342,6 +415,28 @@ export default function GeneratePage() {
 
     // Start wake lock for overlay
     await wakeLock.startGeneration("Initializing...");
+
+    // Cleanup tracking flags (single-shot cleanup)
+    let didEndWakeLock = false;
+    let didCloseOverlay = false;
+    
+    const cleanupOnce = async () => {
+      if (!didCloseOverlay) {
+        descState.setIsGeneratingDesc(false);
+        descState.setGenerationProgressDesc({ 
+          phase: "uploadingPhotos", 
+          current: 0, 
+          total: 0, 
+          label: "" 
+        });
+        didCloseOverlay = true;
+      }
+      
+      if (!didEndWakeLock) {
+        await wakeLock.endGeneration();
+        didEndWakeLock = true;
+      }
+    };
 
     // Reset all states
     descState.setGenerationState({
@@ -439,7 +534,7 @@ export default function GeneratePage() {
 
         toast.success("Public remarks ready! Running background tasks...", { id: "generating-desc" });
       } catch (error) {
-        // Generation failed - NO credit charged
+        // Generation failed - refund credit
         const friendlyError = getFriendlyErrorMessage(error);
         descState.setGenerationState(prev => ({
           ...prev,
@@ -447,22 +542,29 @@ export default function GeneratePage() {
         }));
         toast.error(`Public remarks failed: ${friendlyError}`, { id: "generating-desc" });
 
-        if (isRateLimitError(error)) {
-          // Stop here if rate limited
-          return;
+        // Refund the credit since Step 1 failed (idempotent by attempt_id)
+        const refundResult = await refundCredit(currentAttemptId);
+        if (refundResult.success) {
+          const alreadyRefunded = refundResult.data?.already_refunded;
+          if (!alreadyRefunded) {
+            toast.error("Generation failed. Credit refunded.", { 
+              id: "generating-desc-refund",
+              duration: 5000,
+              icon: "🔄"
+            });
+          }
         }
+        
+        // Close overlay and stop - do NOT proceed to background tasks
+        console.log("[Generation] Public Remarks failed - stopping generation");
+        descState.setIsGeneratingBackground(false);
+        await cleanupOnce();  // Single-shot cleanup
+        return; // Stop the pipeline
       }
 
-      // IMMEDIATELY close overlay and end wake lock so user can read
-      console.log("[Generation] Public Remarks complete - closing overlay");
-      descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ 
-        phase: "uploadingPhotos", 
-        current: 0, 
-        total: 0, 
-        label: "" 
-      });
-      await wakeLock.endGeneration();
+      // STEP 1 SUCCEEDED - close overlay and proceed to background tasks
+      console.log("[Generation] Public Remarks succeeded - closing overlay, starting background tasks");
+      await cleanupOnce();  // Single-shot cleanup
 
       // BACKGROUND TASKS (not awaited) - Features, MLS, and Video
       // These run without blocking the UI
@@ -481,38 +583,21 @@ export default function GeneratePage() {
         );
       }
     } catch (error) {
-      console.error("❌ Generation error:", error);
+      // Top-level catch for unexpected errors (photo upload, etc.)
+      console.error("❌ Unexpected generation error:", error);
       
-      // Refund the credit since generation failed
-      const refundResult = await refundCredit();
-      if (refundResult.success) {
-        toast.error("Generation failed. Credit refunded.", { 
-          id: "generating-desc",
-          duration: 5000,
-          icon: "🔄"
-        });
-      } else {
-        // If refund fails, still show error but mention refund issue
-        const friendlyError = getFriendlyErrorMessage(error);
-        toast.error(`${friendlyError}. Please contact support for credit refund.`, { 
-          id: "generating-desc",
-          duration: 6000
-        });
-      }
+      const friendlyError = getFriendlyErrorMessage(error);
+      toast.error(friendlyError, { 
+        id: "generating-desc",
+        duration: 5000
+      });
       
       descState.setIsGeneratingBackground(false);
     } finally {
-      // Ensure overlay is closed
-      descState.setIsGeneratingDesc(false);
-      descState.setGenerationProgressDesc({ 
-        phase: "uploadingPhotos", 
-        current: 0, 
-        total: 0, 
-        label: "" 
-      });
-      await wakeLock.endGeneration();
+      // Ensure cleanup runs even if we didn't hit the early return
+      await cleanupOnce();
     }
-  }, [descState, mlsState, video, wakeLock, user]);
+  }, [descState, mlsState, video, wakeLock, user, currentAttemptId]);
 
   // Background generation runner (not awaited)
   const runBackgroundGeneration = async (
@@ -590,6 +675,7 @@ export default function GeneratePage() {
                 yearBuilt: descState.addressDesc.yearBuilt || null,
                 lotSize: descState.addressDesc.lotSize || null,
                 county: descState.addressDesc.county || null,
+                attempt_id: currentAttemptId,
               },
               property_type: "single_family",
               bedrooms: null, // MLS hasn't run yet
@@ -653,7 +739,6 @@ export default function GeneratePage() {
           [], // Empty array - we'll use existingUrls instead
           addressString,
           user?.id,
-          "claude",
           () => { }, // No progress callback for background
           taxData,
           currentPhotoUrls // Use already-uploaded URLs
@@ -732,7 +817,6 @@ export default function GeneratePage() {
         photosToUse,
         addressString,
         user.id,
-        "claude",
         (message) => {
           wakeLock.setCurrentOperationLabel(message);
           toast.loading(message, { id: "mls-generating" });
@@ -1121,6 +1205,9 @@ export default function GeneratePage() {
             handleRegenerateFeatures={handleRegenerateFeatures}
             handleLoadDescListing={handleLoadDescListing}
             handleClearDescData={descState.handleClearDescData}
+            
+            // Attempt tracking (for idempotent refunds)
+            setCurrentAttemptId={setCurrentAttemptId}
 
             // Refinement handlers
             handleRefineRemarks={handleRefineRemarks}

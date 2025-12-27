@@ -74,10 +74,11 @@ When you make ANY significant change to QuickList, you MUST immediately update t
                          │
           ┌──────────────┼──────────────┐
           ▼              ▼              ▼
-     ┌────────┐    ┌────────┐    ┌────────────┐
-     │ GPT-4o │    │ Gemini │    │  Supabase  │
-     │        │    │  Pro   │    │ PostgreSQL │
-     └────────┘    └────────┘    └────────────┘
+     ┌─────────┐   ┌───────────┐  ┌────────────┐
+     │ gpt-5.2 │   │ gemini-   │  │  Supabase  │
+     │(primary)│   │2.0-flash  │  │ PostgreSQL │
+     └─────────┘   │(fallback) │  └────────────┘
+                   └───────────┘
 ```
 
 ### Key URLs
@@ -115,8 +116,9 @@ listing-magic/
 ├── python-backend/                 # FastAPI Backend
 │   ├── endpoints/                  # API endpoints (mls_data, video_generation, refine_content)
 │   ├── services/                   # AI provider integrations
-│   │   ├── openai_service.py       # GPT integration (primary)
-│   │   └── gemini_service.py       # Gemini integration
+│   │   ├── ai_generation_service.py # Unified AI service with fallback (USE THIS)
+│   │   ├── openai_service.py       # OpenAI integration (legacy)
+│   │   └── gemini_service.py       # Gemini integration (legacy)
 │   ├── compliance/fair_housing.py  # Fair Housing validation
 │   ├── utils/prompt_templates.py   # All AI prompts
 │   ├── main.py                     # FastAPI entry point
@@ -188,16 +190,28 @@ const result = await useCredit();
 ```
 
 ### Supabase RPC Functions
-- `check_and_decrement_credits(user_email)` - Use a credit
+- `check_and_decrement_credits(user_email)` - Use a credit (legacy, no attempt tracking)
+- `check_and_decrement_credits_with_attempt(user_email, attempt_id)` - Use a credit with attempt tracking (recommended)
 - `get_credit_balance(user_email)` - Get balance
 - `add_credits(owner, amount)` - Add credits (admin)
-- `increment_credits(user_email, amount)` - Refund/increment personal credits
+- `increment_credits(user_email, amount)` - Refund/increment personal credits (legacy)
+- `refund_credit_attempt(user_email, attempt_id, amount)` - Idempotent refund by attempt (recommended)
 
 **Important - RPC Parameter Naming**: 
 When calling RPC functions from the frontend, ensure parameter names match exactly. For example:
 ```javascript
 // ✅ Correct - matches SQL function signature
-await supabase.rpc('check_and_decrement_credits', { user_email: user.email })
+await supabase.rpc('check_and_decrement_credits_with_attempt', { 
+  user_email: user.email,
+  attempt_id: attemptId 
+})
+
+// ✅ Correct - idempotent refund
+await supabase.rpc('refund_credit_attempt', {
+  user_email: user.email,
+  attempt_id: attemptId,
+  amount: 1
+})
 
 // ❌ Wrong - parameter name mismatch will cause RPC error
 await supabase.rpc('check_and_decrement_credits', { p_user_email: user.email })
@@ -291,15 +305,86 @@ ATTOM provides property tax data (yearBuilt, lotSize, APN, county) to override A
 
 ---
 
-## 🤖 AI Model Assignment
+## 🤖 AI Model Architecture (Unified Service)
 
-| Task | Primary | Fallback |
-|------|---------|----------|
-| Photo Analysis | GPT-4o Vision | Gemini |
-| Public Remarks | GPT-4o | Gemini |
-| Features List | Gemini Pro | GPT-4o |
-| MLS Extraction | Gemini Pro | GPT-4o |
-| Content Refinement | GPT-4o | Gemini |
+**All AI generation uses a single unified service with transparent fallback.**
+
+### Model Configuration (Dec 26, 2025)
+| Role | Model | Provider |
+|------|-------|----------|
+| **Primary** | `gpt-5.2` | OpenAI |
+| **Fallback** | `gemini-2.0-flash` | Google |
+
+### Task Assignment
+| Task | Model Used |
+|------|------------|
+| Photo Analysis | gpt-5.2 (primary) |
+| Public Remarks | gpt-5.2 (primary) |
+| Features List | gpt-5.2 (primary) |
+| MLS Extraction | gpt-5.2 (primary) |
+
+### Fallback Rules (CRITICAL)
+The Gemini fallback is ONLY triggered for **infrastructure errors**:
+- ✅ Network/connection errors
+- ✅ Timeouts (APITimeoutError)
+- ✅ Rate limits (429)
+- ✅ Server errors (5xx)
+
+The Gemini fallback is NOT triggered for **content errors**:
+- ❌ Fair Housing violations
+- ❌ JSON parsing/validation errors
+- ❌ Empty or low-quality output
+- ❌ Any error where OpenAI successfully responded
+
+**Why?** Content errors need to be fixed at the source (prompts, validators), not worked around with a different model.
+
+### Unified Service
+All endpoints use `services/ai_generation_service.py`:
+```python
+from services.ai_generation_service import generate_content_with_fallback
+
+result = await generate_content_with_fallback(
+    system_prompt=SYSTEM_PROMPT,
+    user_prompt=user_prompt,
+    photo_urls=photo_urls,
+    task_type="public_remarks",  # or "features", "mls"
+    temperature=0.7,
+    max_output_tokens=1200
+)
+# result.provider_used = "openai" or "gemini"
+# result.is_fallback = True if Gemini was used
+```
+
+### OpenAI Responses API Format
+The service uses the OpenAI Responses API (NOT Chat Completions):
+```python
+# Internal implementation uses:
+# IMPORTANT: input must be a list of MESSAGE OBJECTS, not raw content items
+response = await client.responses.create(
+    model="gpt-5.2",
+    instructions=system_prompt,           # System prompt
+    input=[                               # List of message objects
+        {
+            "role": "user",
+            "content": [                  # Content items go INSIDE the message
+                {"type": "input_text", "text": user_prompt},
+                {"type": "input_image", "image_url": url, "detail": "high"},
+            ]
+        }
+    ],
+    temperature=0.7,
+    max_output_tokens=1200                # NOT max_tokens!
+)
+content = response.output_text            # Extract result
+```
+
+**CRITICAL**: The `input` parameter must be a list of message objects with `role` and `content` fields. Passing raw `input_text`/`input_image` items directly to `input` will cause a 400 error.
+
+**Frontend is Model-Agnostic**:
+- The frontend does NOT know which AI provider/model is used
+- All generation endpoints (`/api/generate-public-remarks`, `/api/generate-features`, `/api/extract-mls-data`) proxy to the backend
+- The backend handles all model selection and fallback logic
+- Provider/model metadata is ONLY shown in dev/debug mode (gated by `NODE_ENV !== "production"` and `NEXT_PUBLIC_DEBUG_AI_METADATA="true"`)
 
 **Note**: Walkthrough script generation was removed (Dec 15, 2025). Videos are now silent slideshows.
 
@@ -347,16 +432,89 @@ git push origin main
 ## 🐛 Known Issues (Check Before Debugging)
 
 ### Active Issues
-1. **Photo Categorization 503**: Non-blocking console error, doesn't affect generation
+None currently active.
 
 ### Solved Issues (Don't Re-Fix)
+- ✅ Photo categorization timeout → Increased timeout + deterministic fallback (Dec 26, 2025):
+  - Timeout increased from 15s to 25s (configurable, capped <30s)
+  - Added deterministic fallback categorization when AI times out/errors/returns unusable buckets
+  - Fallback uses `spreadSample()` + `pickFromThird()` utilities to sample across entire album
+  - Fallback preserves category representation via quotas (EXTERIOR/LIVING/KITCHEN/BATHROOM/BEDROOM/UTILITY) and album-wide sampling
+  - Features Sheet now always receives diverse photo coverage (no more "Not provided" due to categorization failures)
+  - Added guardrails: throws clear error if selection produces empty list when photos exist
+  - Lightweight logging: logs fallback reason (timeout/error/unusable) + bucket counts
+  - Affects: `libs/photo-selection.ts`
+- ✅ Features/MLS/Public Remarks generating with 0 photos (base64 ignored) → Fixed base64 photo forwarding (Dec 27, 2025): 
+  - Backend endpoints were only forwarding `photo.url` into unified AI service, ignoring `photo.base64`
+  - Result: Features sheet often returned “Not provided (no photos/data…)” across all sections
+  - Fix: convert base64 inputs into `data:<mime>;base64,...` URLs when building `photo_urls`
+  - Gemini fallback now supports `data:` URLs as well (no HTTP download attempt)
+  - Affects: `python-backend/main.py`, `python-backend/services/ai_generation_service.py`
+- ✅ RPC fallback too broad + useless error logs → Tightened to PGRST202-only + actionable logging (Dec 26, 2025):
+  - Only fall back to legacy RPC when `error.code === "PGRST202"` (function not found)
+  - Removed message-based fallback (`errorMessage.includes("Could not find...")`)
+  - If RPC exists but errors (permissions, ambiguous column, etc.), surface real error to user
+  - Added `logRpcError()` helper that logs: `code`, `message`, `details`, `hint`, `status`, `statusText`, `paramKeys`
+  - Now captures `status`/`statusText` from RPC response: `{ data, error, status, statusText }`
+  - Refund failures show toast with error code: `"Credit refund failed (CODE)"`
+  - Affects: `NameListingModal.jsx` (debit RPC), `page.jsx` (refund RPC)
+- ✅ photoCompliance client-bundle issue → Temporarily disabled (Dec 26, 2025):
+  - `libs/photoCompliance.js` imports `face-api.js`/`tfjs` which try to resolve Node.js `fs` in browser
+  - Removed client-side import from `useDescriptionsState.js`
+  - Scan handler now shows toast: `"Photo compliance scanning is temporarily disabled"`
+  - TODO: Move to server-side API route or use browser-safe ML library
+  - Low priority for beta launch
+- ✅ OpenAI 400 error "max_tokens unsupported" → Switched to Responses API (Dec 26, 2025):
+  - Now uses `client.responses.create()` instead of `client.chat.completions.create()`
+  - Uses `max_output_tokens` parameter (NOT `max_tokens` or `max_completion_tokens`)
+  - Uses `instructions` for system prompt, `input` for user content with `input_image`/`input_text` types
+  - Uses `response.output_text` to extract content
+- ✅ OpenAI 400 error "Invalid value: 'input_text'" → Fixed input format (Dec 26, 2025):
+  - `input` must be a list of MESSAGE OBJECTS, not a flat list of content items
+  - WRONG: `input=[{"type": "input_text", ...}, {"type": "input_image", ...}]`
+  - RIGHT: `input=[{"role": "user", "content": [{"type": "input_text", ...}, ...]}]`
+  - Added defensive logging for 400 errors with input shape info
+- ✅ AI model fragmentation → Unified all generation to use gpt-5.2 primary with gemini-2.0-flash fallback (Dec 26, 2025):
+  - Created `services/ai_generation_service.py` as single source of truth
+  - Fallback only triggers for infrastructure errors (timeouts, 5xx, rate limits)
+  - Content errors do NOT trigger fallback (Fair Housing, JSON validation)
+  - All endpoints now use `generate_content_with_fallback()`
+- ✅ Claude 429 TPM rate limit → Removed direct Claude calls from all endpoints (Dec 26, 2025):
+  - Updated `endpoints/refine_content.py` to use unified AI service (was calling Claude directly)
+  - Updated `endpoints/photo_categorization.py` to use unified AI service (was calling Claude directly)
+  - Removed `import anthropic` from both endpoints
+  - All endpoints now consistently use OpenAI gpt-5.2 as primary with Gemini fallback
+- ✅ Frontend model exposure → Made model-agnostic (Dec 26, 2025):
+  - Removed client-side model selection from MLS extraction
+  - Provider/model metadata is dev/debug-only (gated by env flags)
+  - All frontend routes proxy to backend without knowing which AI provider is used
+  - Created unified `/api/extract-mls-data` endpoint
+- ✅ Background tasks running after Step 1 failure → Fixed pipeline control (Dec 26, 2025):
+  - If Public Remarks generation fails, pipeline now stops immediately
+  - Credit refund happens before returning (prevents background tasks)
+  - Overlay closes to show error state clearly
+  - Improved JSON parsing in `generatePublicRemarks()` and `generateFeatures()` to handle non-JSON error responses (HTML, plain text)
+- ✅ Credit double-refund risk → Implemented idempotent refund system (Dec 26, 2025):
+  - Added `credit_transactions` table with unique `(attempt_id, transaction_type)` constraint
+  - Created `refund_credit_attempt()` RPC that only refunds once per attempt_id
+  - Frontend generates UUID `attempt_id` before credit consumption in `NameListingModal`
+  - Passes `attempt_id` through generation flow for safe refunds on failure
+- ✅ Wake lock double-cleanup → Single-shot cleanup pattern (Dec 26, 2025):
+  - Added `cleanupOnce()` function with flags to prevent duplicate cleanup
+  - Both success and failure paths use same cleanup function
+  - JavaScript `finally` block only runs cleanup if not already done
+- ✅ "Unexpected token <" JSON parse errors → Reusable safe parsing (Dec 26, 2025):
+  - Created `parseJsonResponse<T>()` helper in `libs/generate-api.ts`
+  - Handles empty responses, HTML error pages, and plain text gracefully
+  - Applied to all generation endpoints (Public Remarks, Features, MLS, Video, Refine, Compliance)
+  - Shows first 200 chars of non-JSON response for debugging
 - ✅ ATTOM duplicate calls → Implemented cost-control safeguards (Dec 23, 2025):
   - Client-side cache (session memory), in-flight lock, 60s failure cooldown
   - Server-side cache via `address_json.taxData` in Supabase
   - Removed manual "Fetch Tax Records" button (auto-fetch only)
   - 800ms debounce, AbortController for address changes
 - ✅ Generation timeout → Increased to 300s
-- ✅ Slow GPT-4.1 → Changed to GPT-4o
+- ✅ Slow GPT-4.1 → Changed to gpt-5.2 (via unified service)
 - ✅ MLS data clearing on listing switch → Fixed handleLoadDescListing
 - ✅ Nested button hydration error → Changed to div role="button"
 - ✅ Address lost on tab switch → AddressInput now controlled component
@@ -365,6 +523,12 @@ git push origin main
 - ✅ Video not loading on previous listings → Added video_url to database, saved after generation, restored in handleLoadDescListing
 - ✅ Credit double-charging → Moved credit check to upfront modal gatekeeper (Dec 21, 2025)
 - ✅ RPC parameter mismatch → Fixed NameListingModal to match `user_email` signature + boolean `success` response (Dec 21, 2025)
+- ✅ `/api/credits` 500 on refresh → Made service-role optional, fallback to user auth client (Dec 27, 2025):
+  - Added `export const runtime = "nodejs"` to guarantee Node runtime
+  - `getServiceClient()` returns `null` instead of throwing when env vars missing
+  - Both GET/POST prefer service client, fallback to authenticated `supabase` if unavailable
+  - Client-side safe JSON parsing handles non-JSON 500 responses gracefully
+  - 401 responses (not logged in) handled quietly without console noise
 
 ---
 
@@ -405,16 +569,43 @@ For detailed context, check the `.agent-workspace/` directory:
 2. **Name Listing Modal** → User enters address + ZIP, system calls `check_and_decrement_credits` RPC
    - ✅ **Has Credits**: Modal closes, proceed with generation
    - ❌ **No Credits**: Redirect to `/dashboard/pricing`
-3. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
-4. **Generate Public Remarks** → GPT-4o (overlay closes when done)
-5. **Background Tasks** (sequential):
-   - Features List → Gemini
+3. **Analyze Photos** → Backend AI (shows "Photo X of Y" progress)
+4. **Generate Public Remarks** (CRITICAL STEP) → Backend AI
+   - ✅ **Success**: Overlay closes, proceed to background tasks
+   - ❌ **Failure**: Stop immediately, refund credit, keep error visible, do NOT continue
+5. **Background Tasks** (only if Step 4 succeeded):
+   - Features List → Backend AI
    - Video Generation → FFmpeg (silent slideshow)
-   - MLS Extraction → Gemini
+   - MLS Extraction → Backend AI
+
+**All AI tasks use unified service** (`services/ai_generation_service.py`) with automatic Gemini fallback for infrastructure errors only.
+
+**Frontend API Routes** (model-agnostic):
+- `/api/generate-public-remarks` → Proxies to backend
+- `/api/generate-features` → Proxies to backend
+- `/api/extract-mls-data` → Unified MLS extraction (accepts either base64 images or photo URLs)
+  - Legacy routes `/api/generate-mls-data` and `/api/generate-mls-data-urls` forward to this endpoint
 
 **Result Tabs**: Public Remarks | Features Sheet | Video Tour
 
-**Credit Flow**:
+**Credit Flow & Error Handling**:
 - Credits charged **upfront** when user clicks "Start Project" in modal
-- If generation fails, credit is already used (trade-off for simpler UX)
-- User sees toast: "1 Credit Used from team pool/personal balance (X remaining)"
+- Each generation gets a unique `attempt_id` (UUID) for idempotent refunds
+- `attempt_id` is also stored in the saved listing under `address_json.attempt_id` for audit/debug (listing ↔ attempt ↔ credit transactions)
+- If **Public Remarks** (Step 1) fails:
+  - Pipeline stops immediately (no background tasks run)
+  - Credit automatically refunded via idempotent `refund_credit_attempt` RPC
+  - Refund keyed by `attempt_id` - safe to call multiple times (no double-refunds)
+  - User sees error in UI: "Generation failed. Credit refunded."
+  - Overlay closes to show error state
+  - Wake lock and cleanup run exactly once (single-shot pattern)
+- If background tasks fail (Features/Video/MLS):
+  - No credit refund (user already has Public Remarks content)
+  - Errors shown in respective tabs
+
+**Idempotent Refund System**:
+- `credit_transactions` table tracks all debits/refunds with `attempt_id`
+- `refund_credit_attempt(user_email, attempt_id, amount)` RPC ensures one refund per attempt
+- Unique constraint on `(attempt_id, transaction_type)` prevents duplicate refunds
+- Frontend generates `attempt_id` in `NameListingModal` before credit consumption
+- Passes through generation flow for potential refund on failure

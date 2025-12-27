@@ -113,6 +113,7 @@ export default function PricingPage() {
         window.location.href = url;
       } else {
         toast.error("Failed to create checkout session");
+        setIsLoading(false);
       }
     } catch (error) {
       console.error("Checkout error:", error);

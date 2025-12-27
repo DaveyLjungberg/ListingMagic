@@ -11,7 +11,8 @@ import { useRouter } from "next/navigation";
  * NameListingModal - Credit gatekeeper modal
  * 
  * Prompts user to name their listing before generation.
- * Calls Supabase RPC to check and decrement credits upfront.
+ * Generates a unique attempt_id for idempotent refunds.
+ * Calls Supabase RPC to check and decrement credits upfront with attempt tracking.
  * Redirects to pricing if insufficient credits.
  */
 export default function NameListingModal({ isOpen, onClose, onSubmit, user }) {
@@ -19,6 +20,21 @@ export default function NameListingModal({ isOpen, onClose, onSubmit, user }) {
   const [street, setStreet] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  /**
+   * Helper to log actionable RPC error details
+   */
+  const logRpcError = (rpcName, params, error, status, statusText) => {
+    console.error(`[NameListingModal] RPC '${rpcName}' failed:`, {
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      status,
+      statusText,
+      paramKeys: Object.keys(params),
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,18 +64,52 @@ export default function NameListingModal({ isOpen, onClose, onSubmit, user }) {
     setIsLoading(true);
 
     try {
-      // Call Supabase RPC to check and decrement credits
+      // Generate unique attempt_id for this generation (for idempotent refunds)
+      const attemptId = crypto.randomUUID();
+      console.log(`[NameListingModal] Generated attempt_id: ${attemptId}`);
+
+      // Call Supabase RPC to check and decrement credits with attempt tracking
       // IMPORTANT: Parameter name must match SQL function signature
-      const { data, error } = await supabase.rpc("check_and_decrement_credits", {
+      const params = {
         user_email: user.email,
-      });
+        attempt_id: attemptId,
+      };
+      let { data, error, status, statusText } = await supabase.rpc(
+        "check_and_decrement_credits_with_attempt",
+        params
+      );
 
       if (error) {
-        console.error("❌ RPC error (object):", error);
-        console.error("❌ RPC error (JSON):", JSON.stringify(error, null, 2));
-        toast.error("Failed to check credits");
-        setIsLoading(false);
-        return;
+        const errorCode = error?.code;
+
+        // Only fall back to legacy RPC if the function is missing (PGRST202)
+        if (errorCode === "PGRST202") {
+          console.warn(
+            "[NameListingModal] check_and_decrement_credits_with_attempt not found (PGRST202). Falling back to legacy check_and_decrement_credits."
+          );
+
+          const legacyParams = { user_email: user.email };
+          const legacyResult = await supabase.rpc("check_and_decrement_credits", legacyParams);
+
+          data = legacyResult.data;
+          error = legacyResult.error;
+
+          if (error) {
+            logRpcError("check_and_decrement_credits", legacyParams, error, legacyResult.status, legacyResult.statusText);
+            toast.error("Failed to check credits");
+            return;
+          }
+
+          toast("Using legacy credits check (migration not deployed yet).", {
+            duration: 3500,
+            icon: "ℹ️",
+          });
+        } else {
+          // RPC exists but returned an error - log it and surface to user
+          logRpcError("check_and_decrement_credits_with_attempt", params, error, status, statusText);
+          toast.error(error?.message || "Failed to check credits");
+          return;
+        }
       }
 
       // Parse the response - data.success is a boolean
@@ -72,10 +122,11 @@ export default function NameListingModal({ isOpen, onClose, onSubmit, user }) {
           { duration: 4000, icon: "💳" }
         );
 
-        // Pass address data to parent
+        // Pass address data AND attempt_id to parent for refunds
         onSubmit({
           street: street.trim(),
           zip_code: zipCode.trim(),
+          attempt_id: attemptId,  // Pass for refunds on failure
         });
 
         // Reset form

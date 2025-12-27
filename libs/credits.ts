@@ -34,12 +34,31 @@ export async function getCreditBalance(): Promise<{
       headers: { "Content-Type": "application/json" },
     });
 
-    const data = await response.json();
+    // Handle 401 (not logged in) quietly - expected on refresh before auth loads
+    if (response.status === 401) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Safe JSON parse - handle non-JSON error responses (e.g., HTML 500 pages)
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      const text = await response.text().catch(() => "");
+      console.error(`Failed to parse /api/credits response (status ${response.status}):`, text.slice(0, 200));
+      return {
+        success: false,
+        error: `Server error (${response.status})`,
+      };
+    }
 
     if (!response.ok || !data.success) {
       return {
         success: false,
-        error: data.error || "Failed to fetch credit balance",
+        error: data.error || `Failed to fetch credit balance (${response.status})`,
       };
     }
 
@@ -73,12 +92,37 @@ export async function consumeCredit(): Promise<{
       headers: { "Content-Type": "application/json" },
     });
 
-    const data = await response.json();
+    // Handle 401 (not logged in) quietly
+    if (response.status === 401) {
+      return {
+        success: false,
+        error: "Unauthorized",
+        data: {
+          success: false,
+          source: null,
+          remaining: 0,
+          message: "Not logged in",
+        },
+      };
+    }
+
+    // Safe JSON parse - handle non-JSON error responses
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      const text = await response.text().catch(() => "");
+      console.error(`Failed to parse /api/credits POST response (status ${response.status}):`, text.slice(0, 200));
+      return {
+        success: false,
+        error: `Server error (${response.status})`,
+      };
+    }
 
     if (!response.ok || !data.success) {
       return {
         success: false,
-        error: data.error || "Insufficient credits",
+        error: data.error || `Insufficient credits (${response.status})`,
         data: {
           success: false,
           source: null,

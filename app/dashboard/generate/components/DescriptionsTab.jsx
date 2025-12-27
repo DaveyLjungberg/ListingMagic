@@ -91,6 +91,9 @@ export default function DescriptionsTab({
 
   // Helpers
   formatFeaturesText,
+  
+  // Attempt tracking (for idempotent refunds)
+  setCurrentAttemptId,
 }) {
   // Results tab state
   const [resultsTab, setResultsTab] = useState("Public Remarks");
@@ -354,8 +357,13 @@ export default function DescriptionsTab({
     <NameListingModal
       isOpen={showNameModal}
       onClose={() => setShowNameModal(false)}
-      onSubmit={(address) => {
-        handleAddressChangeDesc(address);
+      onSubmit={(addressData) => {
+        // addressData now contains { street, zip_code, attempt_id }
+        handleAddressChangeDesc(addressData);
+        // Pass attempt_id up to parent for potential refund
+        if (setCurrentAttemptId) {
+          setCurrentAttemptId(addressData.attempt_id);
+        }
         setShowNameModal(false);
       }}
       user={user}

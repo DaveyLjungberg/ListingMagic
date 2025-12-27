@@ -1,4 +1,4 @@
-t off# QuickList - Cursor Rules
+# QuickList - Cursor Rules
 
 You are an expert full-stack developer working on **QuickList**, a SaaS that generates AI-powered real estate listing content in 60-90 seconds.
 
@@ -10,12 +10,73 @@ You are an expert full-stack developer working on **QuickList**, a SaaS that gen
 - **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS (Vercel)
 - **Backend**: Python FastAPI (Railway)
 - **Database**: Supabase PostgreSQL + Auth + Storage
-- **AI**: GPT-4o (primary), Gemini Pro (secondary)
+- **AI**: OpenAI gpt-5.2 (primary), Gemini gemini-2.0-flash (fallback for infra errors only)
 
 **URLs**:
 - Frontend: https://listing-magic.vercel.app
 - Backend: https://listingmagic-production.up.railway.app
 - Database: https://vbfwcemtkgymygccgffl.supabase.co
+
+## AI Model Architecture (Unified Service)
+
+**Primary**: OpenAI `gpt-5.2` for ALL generation tasks
+**Fallback**: Google `gemini-2.0-flash` (infrastructure errors ONLY)
+
+**API**: Uses OpenAI Responses API (`client.responses.create()`) with:
+- `instructions` for system prompt
+- `input` for user content - **MUST be a list of MESSAGE OBJECTS** (see format below)
+- `max_output_tokens` (NOT `max_tokens`)
+- `response.output_text` for result extraction
+
+**CRITICAL - Correct Input Format**:
+```python
+# input MUST be a list of message objects with role and content
+response = await client.responses.create(
+    model="gpt-5.2",
+    instructions=system_prompt,
+    input=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": user_prompt},
+                {"type": "input_image", "image_url": photo_url, "detail": "high"},
+            ]
+        }
+    ],
+    temperature=0.7,
+    max_output_tokens=1200
+)
+# WRONG: input=[{"type": "input_text", ...}] ← flat list causes 400 error
+# RIGHT: input=[{"role": "user", "content": [...]}] ← message object format
+```
+
+**Fallback Triggers** (use Gemini):
+- Network/connection errors
+- Timeouts
+- Rate limits (429)
+- Server errors (5xx)
+
+**No Fallback** (fix at source):
+- Fair Housing violations
+- JSON validation errors
+- Content quality issues
+
+**Usage**:
+```python
+from services.ai_generation_service import generate_content_with_fallback
+
+result = await generate_content_with_fallback(
+    system_prompt=..., user_prompt=..., photo_urls=[...],
+    task_type="public_remarks",  # or "features", "mls"
+    temperature=0.7, max_output_tokens=1200
+)
+```
+
+**Frontend is Model-Agnostic**:
+- The frontend does NOT know which AI provider/model is used
+- All generation endpoints (`/api/generate-public-remarks`, `/api/generate-features`, `/api/extract-mls-data`) proxy to the backend
+- The backend handles all model selection and fallback logic
+- Provider/model metadata is ONLY shown in dev/debug mode (gated by `NODE_ENV !== "production"` and `NEXT_PUBLIC_DEBUG_AI_METADATA="true"`)
 
 ## MANDATORY: Real-Time Documentation Updates
 
@@ -73,7 +134,8 @@ listing-magic/
 │   └── utils.js                  # Utility functions (getDomainFromEmail)
 ├── python-backend/               # FastAPI backend
 │   ├── endpoints/                # API endpoints
-│   ├── services/                 # AI provider integrations (openai, gemini)
+│   ├── services/                 # AI provider integrations
+│   │   └── ai_generation_service.py  # Unified AI with fallback (USE THIS)
 │   ├── compliance/               # Fair Housing validation
 │   └── utils/                    # Prompts, helpers
 ├── supabase/
@@ -89,14 +151,30 @@ listing-magic/
 1. **Upload Photos** → Supabase Storage
 2. **Name Listing Modal** → Calls `check_and_decrement_credits` RPC
    - Has credits: proceed | No credits: redirect to pricing
-3. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
-4. **Generate Public Remarks** → GPT-4o (overlay closes when done)
-5. **Background Tasks** (sequential):
-   - Features List → Gemini
+3. **Analyze Photos** → Backend AI (shows "Photo X of Y" progress)
+4. **Generate Public Remarks** (CRITICAL STEP) → Backend AI
+   - ✅ Success: Overlay closes, proceed to background tasks
+   - ❌ Failure: Stop immediately, refund credit, show error, do NOT continue
+5. **Background Tasks** (only if Step 4 succeeded):
+   - Features List → Backend AI
    - Video Generation → FFmpeg (silent slideshow)
-   - MLS Extraction → Gemini
+   - MLS Extraction → Backend AI
+
+**All AI tasks use unified service** (`services/ai_generation_service.py`) with automatic Gemini fallback for infrastructure errors only.
+
+**Frontend API Routes** (model-agnostic):
+- `/api/generate-public-remarks` → Proxies to backend
+- `/api/generate-features` → Proxies to backend
+- `/api/extract-mls-data` → Unified MLS extraction (accepts either base64 images or photo URLs)
+  - Legacy routes `/api/generate-mls-data` and `/api/generate-mls-data-urls` forward to this endpoint
 
 **Result Tabs**: Public Remarks | Features Sheet | Video Tour
+
+**Error Handling**:
+- If Public Remarks (Step 1) fails: Stop pipeline, refund credit idempotently (by attempt_id), show error
+- If background tasks fail: No refund (user has content), errors in tabs
+- Wake lock and overlay cleanup use single-shot pattern (no double-cleanup)
+- All API responses use safe JSON parsing (handles HTML/plain text errors)
 
 ## Coding Standards
 
@@ -182,19 +260,79 @@ async def endpoint_name(request: RequestModel):
 | Credit gatekeeper modal | `components/listing-magic/NameListingModal.jsx` |
 | Pricing page | `app/dashboard/pricing/page.jsx` |
 | Dashboard header | `components/DashboardHeader.jsx` |
-| Backend API client | `libs/generate-api.ts` |
+| Backend API client (model-agnostic) | `libs/generate-api.ts` |
 | Credit system client | `libs/credits.ts` |
 | Credit API | `app/api/credits/route.ts` |
 | Stripe checkout | `app/api/stripe/checkout/route.js` |
 | Stripe webhook | `app/api/stripe/webhook/route.js` |
+| Generation proxies | `app/api/generate-public-remarks/route.ts`, `app/api/generate-features/route.ts` |
+| MLS extraction (unified) | `app/api/extract-mls-data/route.ts` |
 | Utility functions | `libs/utils.js` |
 | AI prompts | `python-backend/utils/prompt_templates.py` |
+| Unified AI service | `python-backend/services/ai_generation_service.py` |
 | Fair Housing rules | `python-backend/compliance/fair_housing.py` |
 | Agent memory | `.agent-workspace/` |
 
 ## Known Issues (Don't Re-Debug)
 
-- ✅ Slow generation → Use GPT-4o not GPT-4.1
+- ✅ Photo categorization timeout → Increased timeout + deterministic fallback (Dec 26, 2025)
+  - Timeout 15s → 25s (configurable, capped <30s)
+  - Deterministic fallback using spreadSample + pickFromThird utilities
+  - Fallback preserves category representation via quotas + album-wide sampling
+  - Features always gets diverse coverage (no more "Not provided")
+  - Guardrails throw error if selection produces empty list
+- ✅ Features sheet "Not provided (no photos/data…)" after gpt-5.2 migration → Fixed base64 photo forwarding (Dec 27, 2025)
+  - Backend endpoints were only forwarding `photo.url` into unified AI service, ignoring `photo.base64`
+  - Fix: convert base64 photos into `data:<mime>;base64,...` URLs when building `photo_urls`
+  - Gemini fallback now supports `data:` URLs too
+- ✅ RPC fallback too broad + useless error logs → Tightened to PGRST202-only + actionable logging (Dec 26, 2025)
+  - Only fall back when error.code === "PGRST202"
+  - logRpcError() logs code/message/details/hint/status/statusText
+  - Refund failures show toast with error code
+- ✅ photoCompliance client-bundle → Temporarily disabled (Dec 26, 2025)
+  - face-api.js/tfjs try to resolve Node fs in browser
+  - Removed client import, scan shows "temporarily disabled" toast
+- ✅ `/api/credits` 500 on refresh → Made service-role optional, fallback to user auth (Dec 27, 2025)
+  - Added `export const runtime = "nodejs"` to guarantee Node runtime
+  - `getServiceClient()` returns `null` instead of throwing when env vars missing
+  - GET/POST prefer service client, fallback to authenticated supabase if unavailable
+  - Client-side safe JSON parsing handles non-JSON 500 responses gracefully
+  - 401 responses handled quietly without console noise
+- ✅ OpenAI 400 "max_tokens unsupported" → Switched to Responses API (Dec 26, 2025)
+  - Uses `client.responses.create()` with `max_output_tokens`
+  - Uses `instructions` for system prompt, `input` for content
+  - Uses `input_image`/`input_text` content types
+- ✅ OpenAI 400 "Invalid value: 'input_text'" → Fixed input format (Dec 26, 2025)
+  - `input` must be list of MESSAGE OBJECTS: `[{"role": "user", "content": [...]}]`
+  - WRONG: `input=[{"type": "input_text", ...}]` (flat list)
+  - RIGHT: `input=[{"role": "user", "content": [{"type": "input_text", ...}]}]`
+- ✅ AI model fragmentation → Unified to gpt-5.2 primary + gemini-2.0-flash fallback (Dec 26, 2025)
+  - All endpoints use `services/ai_generation_service.py`
+  - Fallback ONLY for infra errors (timeouts, 5xx, rate limits)
+  - Content errors do NOT trigger fallback
+- ✅ Claude 429 TPM rate limit → Removed direct Claude calls (Dec 26, 2025)
+  - Updated `refine_content.py` and `photo_categorization.py` to use unified service
+  - Removed `import anthropic` from endpoints
+  - All endpoints now use OpenAI gpt-5.2 primary with Gemini fallback
+- ✅ Frontend model exposure → Made model-agnostic (Dec 26, 2025)
+  - Removed client-side model selection from MLS extraction
+  - Provider/model metadata is dev/debug-only (gated by env flags)
+  - All frontend routes proxy to backend without knowing which AI provider is used
+- ✅ Background tasks after Step 1 failure → Fixed pipeline (Dec 26, 2025):
+  - Public Remarks failure now stops pipeline immediately
+  - Credit refund before background tasks run
+  - Improved JSON parsing for non-JSON error responses
+- ✅ Credit double-refund risk → Idempotent refund system (Dec 26, 2025):
+  - Added `credit_transactions` table with unique constraint
+  - `refund_credit_attempt()` RPC prevents double-refunds by attempt_id
+  - Frontend generates UUID before credit consumption
+- ✅ Wake lock double-cleanup → Single-shot cleanup pattern (Dec 26, 2025):
+  - `cleanupOnce()` function with flags prevents duplicate cleanup
+  - Both success/failure paths use same cleanup
+- ✅ JSON parse errors → Reusable safe parsing helper (Dec 26, 2025):
+  - `parseJsonResponse<T>()` handles HTML/plain text gracefully
+  - Applied to all generation endpoints
+- ✅ Slow generation → Now uses gpt-5.2 (via unified service)
 - ✅ Timeout → Increased to 300s
 - ✅ MLS clearing on switch → Fixed handleLoadDescListing
 - ✅ Address lost on tab switch → AddressInput is controlled component
@@ -250,15 +388,20 @@ Backend/Server:
 
 **Credit Consumption**:
 - Gatekeeper modal (`components/listing-magic/NameListingModal.jsx`) decrements credits via RPC **before** generation starts.
-- RPC: `check_and_decrement_credits(user_email text)` → returns JSON with `{ success, source, remaining, message }`
+- Generates unique `attempt_id` (UUID) for idempotent refunds.
+- RPC: `check_and_decrement_credits_with_attempt(user_email, attempt_id)` → returns JSON with `{ success, source, remaining, message, attempt_id }`
+- `attempt_id` is persisted in the listing record under `address_json.attempt_id` for audit/debug.
 
 **Credit Refunds (Failed Generations)**:
-- If generation fails after a credit was consumed, the UI refunds 1 personal credit via RPC:
-  - `increment_credits(user_email text, amount int)` with `{ user_email: user.email, amount: 1 }`
+- If generation fails after a credit was consumed, the system refunds via idempotent RPC:
+  - `refund_credit_attempt(user_email, attempt_id, amount)` with `{ user_email, attempt_id, amount: 1 }`
+  - Keyed by `attempt_id` - safe to call multiple times (prevents double-refunds)
+  - Unique constraint on `(attempt_id, transaction_type)` in `credit_transactions` table
 - User-facing toast: `"Generation failed. Credit refunded."`
 
 **Important - RPC Parameter Naming**:
-- RPC args must match SQL signature keys exactly (e.g., `{ user_email: user.email }`).
+- RPC args must match SQL signature keys exactly (e.g., `{ user_email: user.email, attempt_id: attemptId }`).
+- See `supabase/migrations/001_credit_balances.sql` for function signatures.
 
 ## ATTOM Tax Records API
 

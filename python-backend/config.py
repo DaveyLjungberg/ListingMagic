@@ -26,9 +26,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
     # Model Names
-    openai_model: str = Field(default="gpt-4o", alias="OPENAI_MODEL")
+    # Primary: OpenAI gpt-5.2 for all generation tasks
+    # Fallback: Gemini gemini-2.0-flash (only for infrastructure failures)
+    openai_model: str = Field(default="gpt-5.2", alias="OPENAI_MODEL")
     anthropic_model: str = Field(default="claude-sonnet-4-20250514", alias="ANTHROPIC_MODEL")
-    gemini_model: str = Field(default="gemini-3-pro-latest", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
 
     # CORS - supports wildcards for Vercel preview deployments
     allowed_origins: str = Field(

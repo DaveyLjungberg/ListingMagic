@@ -1,6 +1,16 @@
 /**
  * Photo Compliance Scanner
  * Scans photos for MLS compliance violations using client-side OCR and face detection
+ * 
+ * ⚠️ WARNING: This module is NOT safe for client-side bundles!
+ * It imports face-api.js and @tensorflow/tfjs-core which attempt to resolve Node.js 'fs' module,
+ * causing browser bundle errors. This should be:
+ * - Moved to a server-side API route, OR
+ * - Refactored to use a browser-compatible ML library, OR
+ * - Lazy-loaded with proper error handling for missing Node modules
+ * 
+ * Currently disabled in production to prevent bundle errors.
+ * See: app/dashboard/generate/hooks/useDescriptionsState.js
  */
 
 import Tesseract from 'tesseract.js';

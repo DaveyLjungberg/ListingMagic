@@ -58,6 +58,7 @@ interface ListingData {
     city?: string;
     state?: string;
     zip_code: string;
+    attempt_id?: string | null;
   };
   property_type: string;
   bedrooms: number | null;

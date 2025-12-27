@@ -1,18 +1,39 @@
 """
 Listing Magic - AI Services
 
-Three cutting-edge AI models optimized for different tasks:
-- OpenAI GPT-4.1 Vision: Photo analysis + persuasive listing copy
-- Anthropic Claude Sonnet 4.5: Natural video narration scripts
-- Google Gemini 3 Pro: Fast structured data (features, RESO)
+AI Generation Strategy:
+- Primary: OpenAI gpt-5.2 for all generation tasks
+- Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+
+All generation endpoints should use the unified ai_generation_service.
 """
 
 from .openai_service import OpenAIService
 from .anthropic_service import AnthropicService
 from .gemini_service import GeminiService
+from .ai_generation_service import (
+    generate_content_with_fallback,
+    generate_public_remarks,
+    generate_features,
+    generate_mls_data,
+    check_ai_services_health,
+    GenerationResult,
+    OPENAI_MODEL,
+    GEMINI_MODEL
+)
 
 __all__ = [
+    # Legacy services (kept for backward compatibility)
     "OpenAIService",
     "AnthropicService",
-    "GeminiService"
+    "GeminiService",
+    # Unified generation service (preferred)
+    "generate_content_with_fallback",
+    "generate_public_remarks",
+    "generate_features",
+    "generate_mls_data",
+    "check_ai_services_health",
+    "GenerationResult",
+    "OPENAI_MODEL",
+    "GEMINI_MODEL"
 ]

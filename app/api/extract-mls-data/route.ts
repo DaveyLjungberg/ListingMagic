@@ -1,29 +1,19 @@
 /**
- * Generate MLS Data from URLs API Route (Legacy)
+ * Extract MLS Data API Route (Unified Endpoint)
  *
- * This route is maintained for backwards compatibility.
- * New code should use /api/extract-mls-data instead.
- * 
- * Proxies requests to the unified extraction endpoint.
- * Backend automatically selects the optimal AI model for MLS field extraction.
+ * Proxies requests to Python FastAPI backend for MLS field extraction.
+ * Accepts either base64 images or photo URLs.
+ * Model selection is handled by the backend.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type { MLSDataRequest, MLSDataResponse } from "@/types/api";
 
 // Route segment config
-export const maxDuration = 300; // 5 minutes timeout for AI processing
+export const maxDuration = 300; // 5 minutes for MLS extraction
 export const dynamic = "force-dynamic";
 
-export interface MLSDataURLsRequest {
-  photo_urls: string[];
-  address: string;
-  tax_data?: {
-    apn?: string;
-    yearBuilt?: string;
-    lotSize?: string;
-    county?: string;
-  };
-}
+const BACKEND_URL = process.env.PYTHON_BACKEND_URL || "http://localhost:8000";
 
 export interface ErrorResponse {
   success: false;
@@ -34,14 +24,17 @@ export interface ErrorResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: MLSDataURLsRequest = await request.json();
+    const body: MLSDataRequest = await request.json();
 
     // Validate required fields
-    if (!body.photo_urls || body.photo_urls.length === 0) {
+    const hasImages = body.images && body.images.length > 0;
+    const hasPhotoUrls = body.photo_urls && body.photo_urls.length > 0;
+
+    if (!hasImages && !hasPhotoUrls) {
       return NextResponse.json(
         {
           success: false,
-          error: "At least one photo URL is required",
+          error: "Either images or photo_urls is required",
           error_code: "VALIDATION_ERROR",
         } as ErrorResponse,
         { status: 400 }
@@ -59,29 +52,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[generate-mls-data-urls] Forwarding ${body.photo_urls.length} photo URLs to unified endpoint`);
+    // Determine which backend endpoint to use
+    const backendEndpoint = hasPhotoUrls
+      ? `${BACKEND_URL}/api/generate-mls-data-urls`
+      : `${BACKEND_URL}/api/generate-mls-data`;
 
-    // Forward to unified extraction endpoint (model-agnostic)
-    const unifiedResponse = await fetch(
-      `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/api/extract-mls-data`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          photo_urls: body.photo_urls,
-          address: body.address,
-          tax_data: body.tax_data,
-        }),
-      }
-    );
+    // Build request body (backend decides model)
+    const requestBody: Record<string, unknown> = {
+      address: body.address,
+    };
 
-    const backendResponse = unifiedResponse;
+    if (hasPhotoUrls) {
+      requestBody.photo_urls = body.photo_urls;
+    } else {
+      requestBody.images = body.images;
+    }
+
+    // Include tax data if provided
+    if (body.tax_data) {
+      requestBody.tax_data = body.tax_data;
+    }
+
+    const photoCount = hasPhotoUrls ? body.photo_urls!.length : body.images!.length;
+    console.log(`[extract-mls-data] Extracting MLS data from ${photoCount} ${hasPhotoUrls ? 'URLs' : 'images'}`);
+
+    // Call Python backend
+    const backendResponse = await fetch(backendEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
 
     if (!backendResponse.ok) {
       const errorData = await backendResponse.json().catch(() => ({}));
-      console.error("Backend error:", errorData);
+      console.error("[extract-mls-data] Backend error:", errorData);
 
       return NextResponse.json(
         {
@@ -94,7 +100,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data = await backendResponse.json();
+    const data: MLSDataResponse = await backendResponse.json();
 
     return NextResponse.json(data, {
       headers: {
@@ -104,7 +110,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Generate MLS data from URLs error:", error);
+    console.error("[extract-mls-data] Error:", error);
 
     // Check if it's a connection error
     if (error instanceof TypeError && error.message.includes("fetch")) {
@@ -128,3 +134,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

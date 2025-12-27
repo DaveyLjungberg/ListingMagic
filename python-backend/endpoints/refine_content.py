@@ -3,18 +3,21 @@ Content Refinement Endpoint for Listing Magic
 
 Allows real-time AI editing of generated content without full regeneration.
 Includes Fair Housing compliance validation on all refinements.
+
+Uses unified AI generation service:
+- Primary: OpenAI gpt-5.2
+- Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
 """
 
 import logging
-import os
 import time
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import anthropic
 
 from compliance import check_fair_housing_compliance, get_compliance_system_prompt
+from services.ai_generation_service import generate_content_with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +142,10 @@ async def refine_content(request: RefineContentRequest) -> RefineContentResponse
     """
     Refine existing content with targeted AI edits.
 
-    Uses Claude to make specific changes while preserving the rest of the content.
+    Uses unified AI generation service:
+    - Primary: OpenAI gpt-5.2
+    - Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+
     All refinements are validated for Fair Housing compliance.
     """
     start_time = time.time()
@@ -172,51 +178,47 @@ async def refine_content(request: RefineContentRequest) -> RefineContentResponse
             processing_time_ms=(time.time() - start_time) * 1000
         )
 
-    # Get API key
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Anthropic API key not configured"
-        )
-
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        # Build the user prompt with conversation context
+        conversation_context = ""
+        if request.conversation_history:
+            history_text = "\n".join([
+                f"{msg.role.upper()}: {msg.content}"
+                for msg in request.conversation_history
+            ])
+            conversation_context = f"\n\nPrevious conversation:\n{history_text}\n"
 
-        # Build messages
-        messages = []
-
-        # Add conversation history
-        for msg in request.conversation_history:
-            messages.append({
-                "role": msg.role,
-                "content": msg.content
-            })
-
-        # Add current refinement request
-        messages.append({
-            "role": "user",
-            "content": build_refinement_prompt(
-                request.content_type,
-                request.current_content,
-                request.user_instruction,
-                request.property_data
-            )
-        })
-
-        # Call Claude API
-        logger.info(f"Refining {request.content_type} content...")
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=get_compliance_system_prompt(request.content_type),
-            messages=messages
+        user_prompt = conversation_context + build_refinement_prompt(
+            request.content_type,
+            request.current_content,
+            request.user_instruction,
+            request.property_data
         )
 
-        refined_content = response.content[0].text.strip()
+        # Get system prompt for compliance
+        system_prompt = get_compliance_system_prompt(request.content_type)
 
-        # Check if Claude refused due to compliance
+        logger.info(f"Refining {request.content_type} content using unified AI service...")
+
+        # Use unified AI generation service (OpenAI primary, Gemini fallback)
+        result = await generate_content_with_fallback(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            photo_urls=[],  # No photos for refinement
+            task_type="public_remarks",  # Use public_remarks task type for refinement
+            temperature=0.3,  # Lower temperature for precise edits
+            max_output_tokens=2000
+        )
+
+        if not result.success:
+            raise HTTPException(
+                status_code=503,
+                detail=f"AI generation failed: {result.error}"
+            )
+
+        refined_content = result.content.strip()
+
+        # Check if AI refused due to compliance
         refusal_phrases = [
             "i can't",
             "i cannot",
@@ -261,7 +263,7 @@ async def refine_content(request: RefineContentRequest) -> RefineContentResponse
             )
 
         processing_time = (time.time() - start_time) * 1000
-        logger.info(f"Content refined successfully in {processing_time:.0f}ms")
+        logger.info(f"Content refined successfully in {processing_time:.0f}ms using {result.model_used}")
 
         return RefineContentResponse(
             success=True,
@@ -270,12 +272,8 @@ async def refine_content(request: RefineContentRequest) -> RefineContentResponse
             processing_time_ms=processing_time
         )
 
-    except anthropic.APIError as e:
-        logger.error(f"Anthropic API error: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"AI service error: {str(e)}"
-        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Refinement failed: {e}", exc_info=True)
         raise HTTPException(

@@ -99,6 +99,8 @@ export interface UsageMetrics {
   provider: AIProvider;
   is_fallback: boolean;
   fallback_reason?: string;
+  // Optional metadata from unified backend (dev/debug only)
+  provider_used?: "openai" | "gemini";
 }
 
 export interface ExtractedFeatures {
@@ -208,12 +210,17 @@ export interface PhotoData {
 // MLS Data Extraction Types
 // =============================================================================
 
-export type MLSModel = "gemini" | "gpt" | "claude";
-
+// Note: Client no longer selects model; backend decides
 export interface MLSDataRequest {
-  images: string[];
+  images?: string[];
+  photo_urls?: string[];
   address: string;
-  model?: MLSModel;
+  tax_data?: {
+    apn?: string;
+    yearBuilt?: string;
+    lotSize?: string;
+    county?: string;
+  };
 }
 
 export interface RoomData {
@@ -255,6 +262,9 @@ export interface MLSDataResponse {
   photos_analyzed?: number;
   // Tax record data applied flags
   tax_data_applied?: Record<string, boolean>;
+  // Optional provider metadata (dev/debug only)
+  provider_used?: "openai" | "gemini";
+  generation_time_ms?: number;
 }
 
 // =============================================================================

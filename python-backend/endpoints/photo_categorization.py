@@ -4,17 +4,21 @@ Photo Categorization Endpoint for Listing Magic
 Analyzes all uploaded photos to categorize them by room/area type,
 enabling intelligent selection of the best representative photos
 for detailed AI analysis.
+
+Uses unified AI generation service:
+- Primary: OpenAI gpt-5.2
+- Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
 """
 
 import json
 import logging
-import os
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-import anthropic
+
+from services.ai_generation_service import generate_content_with_fallback, clean_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +90,10 @@ async def categorize_photos(request: PhotoCategorizationRequest) -> PhotoCategor
     """
     Categorize property photos by room/area type.
 
+    Uses unified AI generation service:
+    - Primary: OpenAI gpt-5.2
+    - Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+
     Analyzes all provided photos and returns categorization with priority scores
     to enable intelligent selection of representative photos for detailed analysis.
     """
@@ -95,16 +103,9 @@ async def categorize_photos(request: PhotoCategorizationRequest) -> PhotoCategor
     if len(request.photo_urls) == 0:
         raise HTTPException(status_code=400, detail="No photos provided")
 
-    # Get API key
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="Anthropic API key not configured")
-
-    logger.info(f"Categorizing {len(request.photo_urls)} photos...")
+    logger.info(f"Categorizing {len(request.photo_urls)} photos using unified AI service...")
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-
         # Build the categorization prompt
         categories_description = "\n".join([
             f"- {cat}: {desc}" for cat, desc in ROOM_CATEGORIES.items()
@@ -138,54 +139,29 @@ Return ONLY a valid JSON array with no markdown formatting:
   ...
 ]"""
 
-        # Build message content with all photos
-        message_content = [
-            {
-                "type": "text",
-                "text": categorization_prompt
-            }
-        ]
+        # System prompt for photo categorization
+        system_prompt = """You are an expert real estate photo analyzer.
+Your task is to categorize property photos by room type and assess their quality and importance.
+Return accurate, structured JSON responses."""
 
-        # Add all photos as image blocks
-        for idx, url in enumerate(request.photo_urls):
-            message_content.append({
-                "type": "image",
-                "source": {
-                    "type": "url",
-                    "url": url
-                }
-            })
-
-        # Call Claude API
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=8000,  # Enough for large JSON array (40+ photos)
-            messages=[
-                {
-                    "role": "user",
-                    "content": message_content
-                }
-            ]
+        # Use unified AI generation service (OpenAI primary, Gemini fallback)
+        result = await generate_content_with_fallback(
+            system_prompt=system_prompt,
+            user_prompt=categorization_prompt,
+            photo_urls=request.photo_urls,
+            task_type="mls",  # Use mls task type for categorization (structured output)
+            temperature=0.2,  # Low temperature for consistent categorization
+            max_output_tokens=8000  # Enough for large JSON array (40+ photos)
         )
 
-        # Extract response text
-        response_text = response.content[0].text.strip()
+        if not result.success:
+            raise HTTPException(
+                status_code=503,
+                detail=f"AI generation failed: {result.error}"
+            )
 
         # Clean up response - remove markdown code blocks if present
-        if response_text.startswith("```"):
-            # Find the JSON content between code blocks
-            lines = response_text.split("\n")
-            json_lines = []
-            in_json = False
-            for line in lines:
-                if line.startswith("```") and not in_json:
-                    in_json = True
-                    continue
-                elif line.startswith("```") and in_json:
-                    break
-                elif in_json:
-                    json_lines.append(line)
-            response_text = "\n".join(json_lines)
+        response_text = clean_json_response(result.content)
 
         # Parse JSON response
         try:
@@ -234,7 +210,7 @@ Return ONLY a valid JSON array with no markdown formatting:
         processing_time = (time.time() - start_time) * 1000
 
         logger.info(
-            f"Categorized {len(categories)} photos in {processing_time:.0f}ms. "
+            f"Categorized {len(categories)} photos in {processing_time:.0f}ms using {result.model_used}. "
             f"Categories: {_summarize_categories(categories)}"
         )
 
@@ -245,12 +221,6 @@ Return ONLY a valid JSON array with no markdown formatting:
             processing_time_ms=processing_time
         )
 
-    except anthropic.APIError as e:
-        logger.error(f"Anthropic API error: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"AI service error: {str(e)}"
-        )
     except HTTPException:
         raise
     except Exception as e:

@@ -12,6 +12,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+// Force Node.js runtime to ensure require() and cookies() work correctly
+export const runtime = "nodejs";
+
 // Create authenticated Supabase client
 async function getSupabaseClient() {
   const cookieStore = await cookies();
@@ -38,18 +41,34 @@ async function getSupabaseClient() {
   });
 }
 
-// Create service role client for admin operations
+// Create service role client for admin operations (optional)
+// Returns null if SUPABASE_SERVICE_ROLE_KEY is not configured
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceKey) {
-    throw new Error("Missing Supabase service role key");
+    return null;
   }
 
-  // Use dynamic import to avoid bundling issues
-  const { createClient } = require("@supabase/supabase-js");
-  return createClient(url, serviceKey);
+  try {
+    // Use dynamic import to avoid bundling issues
+    const { createClient } = require("@supabase/supabase-js");
+    return createClient(url, serviceKey);
+  } catch (error) {
+    console.warn("Failed to create service client:", error);
+    return null;
+  }
+}
+
+// Helper to log RPC errors with actionable details
+function logRpcError(rpcName: string, params: Record<string, any>, error: any) {
+  console.error(`❌ RPC Error: ${rpcName}`);
+  console.error(`   Params keys: ${Object.keys(params).join(", ")}`);
+  console.error(`   Code: ${error?.code}`);
+  console.error(`   Message: ${error?.message}`);
+  console.error(`   Details: ${error?.details}`);
+  console.error(`   Hint: ${error?.hint}`);
 }
 
 // Helper to get authenticated user
@@ -93,15 +112,16 @@ export async function GET() {
       );
     }
 
-    // Use service client to call RPC (bypasses RLS for function call)
+    // Prefer service client (bypasses RLS), fallback to user client
     const serviceClient = getServiceClient();
+    const client = serviceClient || supabase;
 
-    const { data, error } = await serviceClient.rpc("get_credit_balance", {
+    const { data, error } = await client.rpc("get_credit_balance", {
       user_email: user.email,
     });
 
     if (error) {
-      console.error("Error fetching credit balance:", error);
+      logRpcError("get_credit_balance", { user_email: user.email }, error);
       return NextResponse.json(
         { success: false, error: error.message },
         { status: 500 }
@@ -147,15 +167,16 @@ export async function POST() {
       );
     }
 
-    // Use service client to call RPC
+    // Prefer service client (bypasses RLS), fallback to user client
     const serviceClient = getServiceClient();
+    const client = serviceClient || supabase;
 
-    const { data, error } = await serviceClient.rpc("check_and_decrement_credits", {
+    const { data, error } = await client.rpc("check_and_decrement_credits", {
       user_email: user.email,
     });
 
     if (error) {
-      console.error("Error using credit:", error);
+      logRpcError("check_and_decrement_credits", { user_email: user.email }, error);
       return NextResponse.json(
         { success: false, error: error.message },
         { status: 500 }

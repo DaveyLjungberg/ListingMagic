@@ -2,7 +2,7 @@
  * Generate Public Remarks API Route
  *
  * Proxies requests to Python FastAPI backend for listing description generation.
- * Uses GPT-4.1 Vision for photo analysis and persuasive copy.
+ * Backend automatically selects the optimal AI model for photo analysis and content generation.
  */
 
 import { NextRequest, NextResponse } from "next/server";

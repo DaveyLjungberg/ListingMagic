@@ -13,6 +13,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -41,6 +42,20 @@ function LoginForm() {
 
       toast.success("Login successful!");
 
+      localStorage.setItem('rememberMe', rememberMe);
+      if (rememberMe) {
+        sessionStorage.setItem('activeSession', 'true');
+      }
+
+      // Log user session for analytics
+      try {
+        await supabase.rpc('log_user_session', {
+          user_email_param: email
+        });
+      } catch (sessionError) {
+        console.error("Failed to log session:", sessionError);
+      }
+
       // Use window.location for full page navigation to properly trigger middleware
       const redirectTo = searchParams.get("redirectTo") || "/dashboard/generate";
       window.location.href = redirectTo;
@@ -51,9 +66,34 @@ function LoginForm() {
     }
   };
 
-  const handleOAuthLogin = (provider) => {
-    console.log(`OAuth login with ${provider}`);
-    // Future: supabase.auth.signInWithOAuth({ provider })
+  const handleOAuthLogin = async (provider) => {
+    setIsLoading(true);
+    
+    localStorage.setItem('rememberMe', rememberMe);
+    if (rememberMe) {
+      sessionStorage.setItem('activeSession', 'true');
+    }
+    
+    try {
+      const redirectTo = searchParams.get("redirectTo") || "/dashboard/generate";
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider,
+        options: {
+          redirectTo: `${window.location.origin}/api/auth/callback?redirectTo=${redirectTo}`,
+        },
+      });
+
+      if (error) {
+        console.error("OAuth error:", error);
+        toast.error(`Failed to sign in with ${provider}`);
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error("OAuth error:", error);
+      toast.error("An unexpected error occurred");
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -154,6 +194,21 @@ function LoginForm() {
               required
             />
           </div>
+        </div>
+
+        {/* Remember Me Checkbox */}
+        <div className="flex items-center">
+          <input
+            id="remember-me"
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            disabled={isLoading}
+            className="w-4 h-4 text-indigo-600 bg-white border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <label htmlFor="remember-me" className="ml-2 text-sm text-slate-700">
+            Remember me for 1 week
+          </label>
         </div>
 
         {/* Submit Button */}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import { supabase } from "@/libs/supabase";
+import OnboardingModal from "@/components/OnboardingModal";
 import {
   generateFeatures,
   generatePublicRemarks,
@@ -42,6 +43,12 @@ import DashboardHeader from "@/components/DashboardHeader";
  */
 export default function GeneratePage() {
   // =========================================================================
+  // ONBOARDING STATE
+  // =========================================================================
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [userEmail, setUserEmail] = useState(null);
+
+  // =========================================================================
   // TAB STATE
   // =========================================================================
   const [activeTab, setActiveTab] = useState("descriptions");
@@ -66,6 +73,69 @@ export default function GeneratePage() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Check if user needs onboarding (no source set)
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      if (!user?.email) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('source')
+          .eq('user_id', user.id)
+          .maybeSingle(); // Use maybeSingle instead of single to handle missing profiles
+
+        // If profile doesn't exist, create it
+        if (!data && !error) {
+          console.log('[Onboarding] No profile found, creating one');
+          const emailDomain = user.email.split('@')[1];
+          
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert({
+              user_id: user.id,
+              brokerage_domain: emailDomain,
+              created_at: new Date().toISOString()
+            });
+
+          if (insertError) {
+            console.error('Failed to create profile:', insertError);
+            // Still show onboarding modal even if insert fails
+            setUserEmail(user.email);
+            setShowOnboarding(true);
+            return;
+          }
+
+          // Profile created, show onboarding
+          setUserEmail(user.email);
+          setShowOnboarding(true);
+          return;
+        }
+
+        if (error) {
+          console.error('Error checking onboarding:', error);
+          // Show modal anyway on error - better than blocking user
+          setUserEmail(user.email);
+          setShowOnboarding(true);
+          return;
+        }
+
+        // Show modal if no source is set
+        if (!data?.source) {
+          setUserEmail(user.email);
+          setShowOnboarding(true);
+        }
+      } catch (error) {
+        console.error('Onboarding check failed:', error);
+        // Show modal on unexpected error
+        setUserEmail(user.email);
+        setShowOnboarding(true);
+      }
+    };
+
+    checkOnboarding();
+  }, [user]);
 
   // =========================================================================
   // HOOKS
@@ -1259,6 +1329,14 @@ export default function GeneratePage() {
           />
         )}
       </div>
+
+      {/* Onboarding Modal - shown once for OAuth users without source */}
+      {showOnboarding && userEmail && (
+        <OnboardingModal
+          userEmail={userEmail}
+          onComplete={() => setShowOnboarding(false)}
+        />
+      )}
     </main>
   );
 }

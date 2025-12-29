@@ -110,13 +110,19 @@ ALL AI-generated descriptions MUST follow Fair Housing rules:
 ```
 listing-magic/
 ├── app/                          # Next.js App Router
+│   ├── admin/                    # Admin-only pages
+│   │   └── headlights/           # Analytics dashboard (Davey + John only)
+│   ├── auth/                     # Authentication pages
+│   │   ├── login/page.jsx        # Email/OAuth login with "Remember Me"
+│   │   ├── signup/page.jsx       # Account creation with source tracking
+│   │   └── callback/page.jsx     # OAuth callback handler
 │   ├── api/
 │   │   ├── credits/              # Credit system API
 │   │   │   ├── route.ts          # GET balance, POST use credit
 │   │   │   └── add/route.ts      # POST add credits (admin)
 │   │   ├── stripe/               # Stripe payment integration
 │   │   │   ├── checkout/route.js # POST create credit purchase checkout
-│   │   │   └── webhook/route.js  # POST webhook for credit fulfillment
+│   │   │   └── webhook/route.js  # POST webhook for credit fulfillment + revenue tracking
 │   │   └── listings/             # Listings CRUD
 │   ├── dashboard/
 │   │   ├── generate/             # Main generation page
@@ -126,7 +132,11 @@ listing-magic/
 │   │   └── pricing/              # Credit purchase page
 │   │       └── page.jsx          # Pricing cards + team toggle
 ├── components/
-│   └── DashboardHeader.jsx       # Header with "Buy Credits" button
+│   ├── DashboardHeader.jsx       # Header with "Buy Credits" button
+│   ├── LayoutClient.js           # Client wrapper with session check
+│   └── listing-magic/
+│       ├── NameListingModal.jsx  # Credit gatekeeper modal
+│       └── AddressInput.jsx      # Address entry component
 ├── libs/
 │   ├── generate-api.ts           # Backend API client
 │   ├── credits.ts                # Credit system client
@@ -255,6 +265,11 @@ async def endpoint_name(request: RequestModel):
 
 | What | Where |
 |------|-------|
+| Login page (email + OAuth) | `app/auth/login/page.jsx` |
+| Signup page (with source tracking) | `app/auth/signup/page.jsx` |
+| OAuth callback handler | `app/auth/callback/page.jsx` |
+| Session check logic | `components/LayoutClient.js` |
+| Admin analytics dashboard | `app/admin/headlights/page.jsx` |
 | Main generation UI | `app/dashboard/generate/components/DescriptionsTab.jsx` |
 | MLS data display | `app/dashboard/generate/components/MLSDataTab.jsx` |
 | Credit gatekeeper modal | `components/listing-magic/NameListingModal.jsx` |
@@ -264,7 +279,7 @@ async def endpoint_name(request: RequestModel):
 | Credit system client | `libs/credits.ts` |
 | Credit API | `app/api/credits/route.ts` |
 | Stripe checkout | `app/api/stripe/checkout/route.js` |
-| Stripe webhook | `app/api/stripe/webhook/route.js` |
+| Stripe webhook (with revenue tracking) | `app/api/stripe/webhook/route.js` |
 | Generation proxies | `app/api/generate-public-remarks/route.ts`, `app/api/generate-features/route.ts` |
 | MLS extraction (unified) | `app/api/extract-mls-data/route.ts` |
 | Utility functions | `libs/utils.js` |
@@ -275,6 +290,16 @@ async def endpoint_name(request: RequestModel):
 
 ## Known Issues (Don't Re-Debug)
 
+- ✅ **User analytics tracking** → Implemented comprehensive tracking system (Dec 28, 2025)
+  - Session logging for both email and OAuth logins
+  - Signup source tracking with dropdown selection  
+  - Revenue tracking in Stripe webhook
+  - Admin analytics dashboard at `/admin/headlights`
+  - "Remember Me" feature with automatic session expiry
+- ✅ **Google OAuth integration** → Implemented Supabase OAuth flow (Dec 28, 2025)
+  - Login page supports Google and Apple OAuth
+  - Created OAuth callback handler
+  - Session tracking integrated into OAuth flow
 - ✅ Photo categorization timeout → Increased timeout + deterministic fallback (Dec 26, 2025)
   - Timeout 15s → 25s (configurable, capped <30s)
   - Deterministic fallback using spreadSample + pickFromThird utilities
@@ -365,6 +390,13 @@ QuickList uses Stripe for credit purchases. Credits can be purchased for:
 3. User completes payment
 4. Stripe → `POST /api/stripe/webhook` (checkout.session.completed)
 5. Webhook calls Supabase RPC `add_credits(owner, amount)` to increment balance
+6. Webhook calls Supabase RPC `update_user_revenue(user_email, amount)` to track revenue
+
+**Revenue Tracking** (added Dec 28, 2025):
+- Stripe webhook automatically tracks revenue after successful credit purchases
+- Revenue stored in user profile for analytics dashboard
+- For domain purchases: uses customer email from Stripe
+- For personal purchases: uses targetIdentifier (user email)
 
 **Environment Variables** (Required):
 
@@ -402,6 +434,41 @@ Backend/Server:
 **Important - RPC Parameter Naming**:
 - RPC args must match SQL signature keys exactly (e.g., `{ user_email: user.email, attempt_id: attemptId }`).
 - See `supabase/migrations/001_credit_balances.sql` for function signatures.
+
+## User Analytics & Tracking (Dec 28, 2025)
+
+QuickList tracks user activity for analytics and business insights.
+
+**Session Tracking**:
+- Login sessions logged for both email and OAuth (Google/Apple)
+- Tracked in: `app/auth/login/page.jsx` and `app/auth/callback/page.jsx`
+- Calls `log_user_session` RPC with user email
+- Non-blocking: errors don't prevent login
+
+**Signup Source Tracking**:
+- "How did you hear about us?" dropdown in signup form
+- Options: YouTube, TikTok, Facebook, Instagram, Google Search, Referral, Other
+- Stored via `update_user_source` RPC after successful signup
+- Used for marketing attribution
+
+**Remember Me Feature**:
+- Checkbox in login form (defaults to checked)
+- Stores preference in localStorage + sessionStorage
+- On browser restart: if unchecked, user is automatically signed out
+- Checked in `LayoutClient.js` on app mount (skips auth pages)
+
+**Admin Analytics Dashboard**:
+- Located at `/admin/headlights` (protected page)
+- Access: Only `admin@lm-intel.ai` and `jmcdrmtt00@gmail.com`
+- Metrics: accounts, logins, listings, paid listings, revenue, cost
+- Per-user table: email, brokerage, join date, source, activity, revenue, cost
+- Date filter for historical data
+- Data source: Supabase view `headlights_overview`
+
+**Required RPC Functions**:
+- `log_user_session(user_email_param TEXT)` - Log login
+- `update_user_source(user_email_param TEXT, source_param TEXT)` - Save signup source
+- `update_user_revenue(user_email_param TEXT, amount_param DECIMAL)` - Track revenue
 
 ## ATTOM Tax Records API
 

@@ -138,6 +138,23 @@ export async function POST(req) {
           );
         }
 
+        // Track revenue in user profile
+        const revenueAmount = session.amount_total / 100; // Convert cents to dollars
+        const targetEmail = creditType === 'domain' 
+          ? session.customer_email 
+          : targetIdentifier;
+
+        if (targetEmail) {
+          try {
+            await supabase.rpc('update_user_revenue', {
+              user_email_param: targetEmail,
+              amount_param: revenueAmount
+            });
+          } catch (revenueError) {
+            console.error("Failed to update revenue:", revenueError);
+          }
+        }
+
         console.log(
           `✅ Credits added successfully:`,
           JSON.stringify({
@@ -174,4 +191,5 @@ export async function POST(req) {
     );
   }
 }
+
 

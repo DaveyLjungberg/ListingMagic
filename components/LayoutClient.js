@@ -6,6 +6,7 @@ import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "react-hot-toast";
 import { Tooltip } from "react-tooltip";
 import config from "@/config";
+import { supabase } from "@/libs/supabase";
 
 // Crisp customer chat support:
 const CrispChat = () => {
@@ -42,6 +43,34 @@ const CrispChat = () => {
 // 3. Tooltip: Show tooltips if any JSX elements has these 2 attributes: data-tooltip-id="tooltip" data-tooltip-content=""
 // 4. CrispChat: Set Crisp customer chat support (see above)
 const ClientLayout = ({ children }) => {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const checkRememberMe = async () => {
+      // Skip check on auth pages
+      if (pathname?.startsWith('/auth/')) return;
+      
+      const rememberMe = localStorage.getItem('rememberMe');
+      const activeSession = sessionStorage.getItem('activeSession');
+      
+      // If rememberMe was false and session flag is missing (browser was closed)
+      if (rememberMe === 'false' && !activeSession) {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          // User had "remember me" unchecked and browser was closed
+          await supabase.auth.signOut();
+          window.location.href = '/auth/login';
+        }
+      } else if (rememberMe === 'true' || rememberMe === null) {
+        // Restore session flag for "remember me" users
+        sessionStorage.setItem('activeSession', 'true');
+      }
+    };
+    
+    checkRememberMe();
+  }, [pathname]);
+
   return (
     <>
       {/* Show a progress bar at the top when navigating between pages */}

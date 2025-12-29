@@ -94,7 +94,13 @@ When you make ANY significant change to QuickList, you MUST immediately update t
 ```
 listing-magic/
 ├── app/                            # Next.js App Router (Frontend)
-│   ├── auth/                       # Login/signup pages
+│   ├── admin/                      # Admin-only pages
+│   │   └── headlights/             # Analytics dashboard (Davey + John only)
+│   │       └── page.jsx            # User metrics, revenue, cost tracking
+│   ├── auth/                       # Authentication pages
+│   │   ├── login/page.jsx          # Email/OAuth login with "Remember Me"
+│   │   ├── signup/page.jsx         # Account creation with source tracking
+│   │   └── callback/page.jsx       # OAuth callback handler
 │   ├── dashboard/
 │   │   ├── generate/               # Main generation page
 │   │   │   ├── components/         # DescriptionsTab, MLSDataTab, ResultsTabs
@@ -105,6 +111,7 @@ listing-magic/
 │   └── layout.jsx
 ├── components/
 │   ├── DashboardHeader.jsx         # Header with "Buy Credits" button
+│   ├── LayoutClient.js             # Client wrapper with session check
 │   └── listing-magic/
 │       ├── NameListingModal.jsx    # Credit gatekeeper modal
 │       └── AddressInput.jsx        # Address entry component
@@ -257,6 +264,85 @@ QuickList uses Stripe Checkout for credit purchases. Credits can be purchased fo
 - The `creditsAmount` field (1/10/50) is passed in metadata for webhook fulfillment
 
 **Note**: The credits webhook (`/api/stripe/webhook`) is separate from the legacy subscription webhook (`/api/webhook/stripe`).
+
+**Revenue Tracking** (added Dec 28, 2025):
+- Stripe webhook automatically tracks revenue after successful credit purchases
+- Calls `update_user_revenue` RPC with email and dollar amount
+- For domain purchases: uses customer email from Stripe
+- For personal purchases: uses targetIdentifier (user email)
+- Revenue stored in user profile for analytics dashboard
+
+---
+
+## 📊 User Analytics & Tracking (Dec 28, 2025)
+
+QuickList tracks user activity for analytics and business insights.
+
+### Session Tracking
+**Login sessions** are automatically logged for both authentication methods:
+- Email/password login → tracked in `app/auth/login/page.jsx`
+- OAuth login (Google/Apple) → tracked in `app/auth/callback/page.jsx`
+- Both call `log_user_session` RPC with user email
+- Non-blocking: errors don't prevent login
+
+### User Source Tracking
+**Signup source** is captured during account creation:
+- "How did you hear about us?" dropdown in signup form
+- Options: YouTube, TikTok, Facebook, Instagram, Google Search, Referral, Other
+- Stored via `update_user_source` RPC after successful signup
+- Used for marketing attribution and analytics
+
+### Remember Me Feature
+**Session persistence** controlled by user preference:
+- Checkbox in login form (defaults to checked)
+- Stores preference in localStorage + sessionStorage
+- On browser restart: if unchecked, user is signed out automatically
+- Checked in `LayoutClient.js` on app mount (skips auth pages)
+
+### Admin Analytics Dashboard
+**Headlights Dashboard** (`/admin/headlights`) - protected page for Davey + John:
+- **Access control**: Only `admin@lm-intel.ai` and `jmcdrmtt00@gmail.com`
+- **Metrics displayed**:
+  - Total accounts, logins, listings
+  - Paid listings (credits purchased)
+  - Total revenue and cost
+- **Per-user table**: Email, brokerage, join date, source, activity, revenue, cost
+- **Date filter**: View historical data as of any date
+- **Data source**: Supabase view `headlights_overview`
+
+### Required RPC Functions
+```sql
+-- Log user login session
+CREATE FUNCTION log_user_session(user_email_param TEXT) RETURNS VOID;
+
+-- Save signup source
+CREATE FUNCTION update_user_source(user_email_param TEXT, source_param TEXT) RETURNS VOID;
+
+-- Track revenue from credit purchases
+CREATE FUNCTION update_user_revenue(user_email_param TEXT, amount_param DECIMAL) RETURNS VOID;
+```
+
+### Required Database Schema
+```sql
+-- User sessions table
+CREATE TABLE user_sessions (
+  id UUID PRIMARY KEY,
+  user_email TEXT,
+  logged_in_at TIMESTAMP,
+  created_at TIMESTAMP
+);
+
+-- Profiles table additions
+ALTER TABLE profiles ADD COLUMN source TEXT;
+ALTER TABLE profiles ADD COLUMN revenue_to_date DECIMAL(10,2) DEFAULT 0;
+
+-- Headlights analytics view
+CREATE VIEW headlights_overview AS
+  SELECT user_id, listor_email, brokerage_domain, date_account_opened,
+         source, num_listings, num_logins, new_listing_credits,
+         revenue_to_date, cost_to_date
+  FROM profiles;
+```
 
 ---
 
@@ -435,6 +521,16 @@ git push origin main
 None currently active.
 
 ### Solved Issues (Don't Re-Fix)
+- ✅ **User analytics tracking** → Implemented comprehensive tracking system (Dec 28, 2025):
+  - Session logging for both email and OAuth logins
+  - Signup source tracking with dropdown selection
+  - Revenue tracking in Stripe webhook
+  - Admin analytics dashboard at `/admin/headlights`
+  - "Remember Me" feature with automatic session expiry
+- ✅ **Google OAuth integration** → Implemented Supabase OAuth flow (Dec 28, 2025):
+  - Login page now supports Google and Apple OAuth
+  - Created `/app/auth/callback/page.jsx` to handle OAuth redirects
+  - Session tracking integrated into OAuth flow
 - ✅ Photo categorization timeout → Increased timeout + deterministic fallback (Dec 26, 2025):
   - Timeout increased from 15s to 25s (configurable, capped <30s)
   - Added deterministic fallback categorization when AI times out/errors/returns unusable buckets
@@ -543,6 +639,33 @@ None currently active.
 
 ## 🔗 Quick References
 
+**Key Files**:
+| What | Where |
+|------|-------|
+| Login page (email + OAuth) | `app/auth/login/page.jsx` |
+| Signup page (with source tracking) | `app/auth/signup/page.jsx` |
+| OAuth callback handler | `app/auth/callback/page.jsx` |
+| Session check logic | `components/LayoutClient.js` |
+| Admin analytics dashboard | `app/admin/headlights/page.jsx` |
+| Main generation UI | `app/dashboard/generate/components/DescriptionsTab.jsx` |
+| MLS data display | `app/dashboard/generate/components/MLSDataTab.jsx` |
+| Credit gatekeeper modal | `components/listing-magic/NameListingModal.jsx` |
+| Pricing page | `app/dashboard/pricing/page.jsx` |
+| Dashboard header | `components/DashboardHeader.jsx` |
+| Backend API client (model-agnostic) | `libs/generate-api.ts` |
+| Credit system client | `libs/credits.ts` |
+| Credit API | `app/api/credits/route.ts` |
+| Stripe checkout | `app/api/stripe/checkout/route.js` |
+| Stripe webhook (with revenue tracking) | `app/api/stripe/webhook/route.js` |
+| Generation proxies | `app/api/generate-public-remarks/route.ts`, `app/api/generate-features/route.ts` |
+| MLS extraction (unified) | `app/api/extract-mls-data/route.ts` |
+| Utility functions | `libs/utils.js` |
+| AI prompts | `python-backend/utils/prompt_templates.py` |
+| Unified AI service | `python-backend/services/ai_generation_service.py` |
+| Fair Housing rules | `python-backend/compliance/fair_housing.py` |
+| Agent memory | `.agent-workspace/` |
+
+**Dashboard URLs**:
 - **Supabase Dashboard**: https://supabase.com/dashboard/project/vbfwcemtkgymygccgffl
 - **Vercel Dashboard**: https://vercel.com/daveylungbergs-projects
 - **Railway Dashboard**: https://railway.app

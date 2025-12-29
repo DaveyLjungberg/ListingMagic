@@ -104,7 +104,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        "X-Request-ID": data.request_id || "",
         "X-Processing-Time": String(data.processing_time_ms || 0),
         "X-Photos-Analyzed": String(data.photos_analyzed || 0),
       },

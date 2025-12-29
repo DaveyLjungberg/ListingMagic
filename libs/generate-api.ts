@@ -470,14 +470,15 @@ export async function generatePublicRemarks(
     API_TIMEOUTS.generation
   );
 
-  // Use safe JSON parsing helper
-  const data = await parseJsonResponse<PublicRemarksResponse>(response);
+  // Use safe JSON parsing helper - response could be success or error type
+  const data = await parseJsonResponse<PublicRemarksResponse | { success: false; error: string }>(response);
 
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Failed to generate public remarks");
+    const errorMessage = 'error' in data ? data.error : "Failed to generate public remarks";
+    throw new Error(errorMessage);
   }
 
-  return data;
+  return data as PublicRemarksResponse;
 }
 
 /**
@@ -503,14 +504,15 @@ export async function generateFeatures(
     API_TIMEOUTS.generation
   );
 
-  // Use safe JSON parsing helper
-  const data = await parseJsonResponse<FeaturesResponse>(response);
+  // Use safe JSON parsing helper - response could be success or error type
+  const data = await parseJsonResponse<FeaturesResponse | { success: false; error: string }>(response);
 
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Failed to generate features");
+    const errorMessage = 'error' in data ? data.error : "Failed to generate features";
+    throw new Error(errorMessage);
   }
 
-  return data;
+  return data as FeaturesResponse;
 }
 
 // =============================================================================
@@ -800,13 +802,14 @@ export async function generateMLSData(
     API_TIMEOUTS.mlsExtraction
   );
 
-  const data = await parseJsonResponse<MLSDataResponse>(response);
+  const data = await parseJsonResponse<MLSDataResponse | { success: false; error: string }>(response);
 
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Failed to extract MLS data");
+    const errorMessage = 'error' in data ? data.error : "Failed to extract MLS data";
+    throw new Error(errorMessage);
   }
 
-  return data;
+  return data as MLSDataResponse;
 }
 
 /**
@@ -893,13 +896,14 @@ export async function generateMLSDataFromURLs(
     API_TIMEOUTS.mlsExtraction
   );
 
-  const data = await parseJsonResponse<MLSDataResponse>(response);
+  const data = await parseJsonResponse<MLSDataResponse | { success: false; error: string }>(response);
 
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Failed to extract MLS data from URLs");
+    const errorMessage = 'error' in data ? data.error : "Failed to extract MLS data from URLs";
+    throw new Error(errorMessage);
   }
 
-  return data;
+  return data as MLSDataResponse;
 }
 
 /**

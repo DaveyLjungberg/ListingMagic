@@ -38,10 +38,13 @@ function getServiceClient() {
  * - checkout.session.completed: Add credits to user/domain balance
  */
 export async function POST(req) {
+  console.log("[Webhook] === WEBHOOK RECEIVED ===");
+  console.log("[Webhook] Timestamp:", new Date().toISOString());
+  
   // Check if Stripe is configured
   if (!stripe || !webhookSecret) {
     console.error(
-      "Stripe webhook configuration missing. Need STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or STRIPE_CREDITS_WEBHOOK_SECRET)"
+      "[Webhook] Stripe webhook configuration missing. Need STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (or STRIPE_CREDITS_WEBHOOK_SECRET)"
     );
     return NextResponse.json(
       { error: "Stripe configuration missing" },
@@ -50,6 +53,7 @@ export async function POST(req) {
   }
 
   try {
+    console.log("[Webhook] Getting request body...");
     // Get raw body for signature verification
     const body = await req.text();
     const signature = (await headers()).get("stripe-signature");
@@ -84,8 +88,13 @@ export async function POST(req) {
       const session = data.object;
       const metadata = session.metadata;
 
+      console.log("[Webhook] Checkout session completed:");
+      console.log("[Webhook] Session ID:", session.id);
+      console.log("[Webhook] Customer email:", session.customer_email);
+      console.log("[Webhook] Metadata:", JSON.stringify(metadata, null, 2));
+
       if (!metadata) {
-        console.warn("Checkout session has no metadata, skipping");
+        console.warn("[Webhook] Checkout session has no metadata, skipping");
         return NextResponse.json({ received: true });
       }
 
@@ -122,6 +131,11 @@ export async function POST(req) {
       try {
         const supabase = getServiceClient();
 
+        console.log("[Webhook] Calling add_credits RPC:");
+        console.log("[Webhook] - owner:", targetIdentifier.toLowerCase());
+        console.log("[Webhook] - amount:", amount);
+
+        // Use add_credits RPC (supports both personal and team credits)
         const { data: rpcData, error: rpcError } = await supabase.rpc(
           "add_credits",
           {
@@ -131,9 +145,20 @@ export async function POST(req) {
         );
 
         if (rpcError) {
-          console.error("Error adding credits via RPC:", rpcError);
+          console.error("[Webhook] Error adding credits via RPC:", rpcError);
           return NextResponse.json(
             { error: "Failed to add credits" },
+            { status: 500 }
+          );
+        }
+
+        console.log("[Webhook] RPC response:", JSON.stringify(rpcData, null, 2));
+
+        // Check if RPC returned success
+        if (!rpcData?.success) {
+          console.error("[Webhook] RPC returned failure:", rpcData?.error);
+          return NextResponse.json(
+            { error: rpcData?.error || "Failed to add credits" },
             { status: 500 }
           );
         }
@@ -144,14 +169,24 @@ export async function POST(req) {
           ? session.customer_email 
           : targetIdentifier;
 
+        console.log("[Webhook] Tracking revenue:");
+        console.log("[Webhook] - email:", targetEmail);
+        console.log("[Webhook] - amount:", revenueAmount);
+
         if (targetEmail) {
           try {
-            await supabase.rpc('update_user_revenue', {
+            const { data: revenueData, error: revenueError } = await supabase.rpc('update_user_revenue', {
               user_email_param: targetEmail,
               amount_param: revenueAmount
             });
+            
+            if (revenueError) {
+              console.error("[Webhook] Failed to update revenue:", revenueError);
+            } else {
+              console.log("[Webhook] Revenue updated successfully");
+            }
           } catch (revenueError) {
-            console.error("Failed to update revenue:", revenueError);
+            console.error("[Webhook] Exception while updating revenue:", revenueError);
           }
         }
 
@@ -184,7 +219,10 @@ export async function POST(req) {
     // For other event types, just acknowledge receipt
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Webhook error:", error);
+    console.error("[Webhook] === WEBHOOK ERROR ===");
+    console.error("[Webhook] Error type:", error?.constructor?.name);
+    console.error("[Webhook] Error message:", error?.message);
+    console.error("[Webhook] Error stack:", error?.stack);
     return NextResponse.json(
       { error: "Webhook handler failed" },
       { status: 500 }

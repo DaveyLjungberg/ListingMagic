@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, Check } from "lucide-react";
 import DashboardHeader from "@/components/DashboardHeader";
 import { supabase } from "@/libs/supabase";
+import toast from "react-hot-toast";
 
 /**
  * Pricing Page - Credit purchase options

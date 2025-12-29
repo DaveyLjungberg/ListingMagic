@@ -1080,6 +1080,39 @@ export default function GeneratePage() {
   // =========================================================================
 
   const handleLoadDescListing = useCallback((listing) => {
+    // CRITICAL: Clear ALL state first to prevent data from previous listing bleeding through
+    console.log("[handleLoadDescListing] Clearing all state before loading listing:", listing.id);
+    
+    // Clear descriptions state
+    descState.setGenerationState({
+      publicRemarks: { status: "idle", data: null, error: null },
+      features: { status: "idle", data: null, error: null },
+    });
+    descState.setExpandedSections({
+      publicRemarks: false,
+      features: false,
+    });
+    descState.setComplianceReportDesc(null);
+    descState.setGenerationProgressDesc({
+      phase: "uploadingPhotos",
+      current: 0,
+      total: 0,
+      label: "",
+    });
+    
+    // Clear MLS state
+    mlsState.setMlsData(null);
+    mlsState.setMlsDataEditable(null);
+    mlsState.setCurrentListingIdMLS(null);
+    mlsState.setPhotoUrlsMLS([]);
+    mlsState.setAddressMLS(null);
+    
+    // Clear video state
+    video.setVideoData(null);
+    
+    // Now load the new listing data
+    console.log("[handleLoadDescListing] Loading listing data:", listing.id);
+    
     // Set address via ref
     if (listing.address_json && descState.addressInputDescRef.current) {
       descState.addressInputDescRef.current.setAddress({
@@ -1150,6 +1183,7 @@ export default function GeneratePage() {
     }
 
     // Handle MLS state based on whether listing has MLS data
+    // (MLS state was already cleared above, only load if present)
     if (listing.mls_data) {
       // Hydrate MLS state from the selected listing
       console.log("[handleLoadDescListing] Loading MLS data from listing:", listing.mls_data);
@@ -1163,16 +1197,9 @@ export default function GeneratePage() {
       if (listing.address_json) {
         mlsState.setAddressMLS(listing.address_json);
       }
-    } else {
-      // Clear MLS state when listing has no MLS data
-      // This ensures the MLS Data tab shows empty state for listings without MLS data
-      console.log("[handleLoadDescListing] No MLS data in listing, clearing MLS state");
-      mlsState.setMlsData(null);
-      mlsState.setMlsDataEditable(null);
-      mlsState.setCurrentListingIdMLS(null);
-      mlsState.setPhotoUrlsMLS([]);
-      mlsState.setAddressMLS(null);
     }
+    
+    console.log("[handleLoadDescListing] Listing loaded successfully:", listing.id);
   }, [descState, mlsState, video]);
 
   // =========================================================================

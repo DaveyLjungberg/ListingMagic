@@ -521,6 +521,17 @@ git push origin main
 None currently active.
 
 ### Solved Issues (Don't Re-Fix)
+- ✅ **Stripe webhook credits not populating** → Fixed RPC function mismatch (Dec 29, 2025):
+  - Webhook was calling non-existent `add_credits` RPC function
+  - Changed to use existing `increment_credits(user_email, amount)` function
+  - All three credit packages now successfully add credits after purchase
+  - ⚠️ Team credits not fully supported yet (requires new `add_credits` RPC)
+  - Affects: `app/api/stripe/webhook/route.js`
+- ✅ **Previous listing data bleed-through** → State fully cleared before loading new listing (Dec 29, 2025):
+  - `handleLoadDescListing` now clears ALL state (descriptions, MLS, video) before loading
+  - Prevents "ghost data" from previous listings appearing when switching
+  - Unconditional reset → conditional load pattern ensures clean slate
+  - Affects: `app/dashboard/generate/page.jsx`
 - ✅ **User analytics tracking** → Implemented comprehensive tracking system (Dec 28, 2025):
   - Session logging for both email and OAuth logins
   - Signup source tracking with dropdown selection

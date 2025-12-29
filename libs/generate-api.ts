@@ -983,17 +983,18 @@ export async function generateMLSDataWithStorage(
       API_TIMEOUTS.mlsExtraction
     );
 
-    const mlsData = await parseJsonResponse<MLSDataResponse>(response);
+    const mlsData = await parseJsonResponse<MLSDataResponse | { success: false; error: string }>(response);
     
     if (!response.ok || !mlsData.success) {
-      throw new Error(mlsData.error || "Failed to generate MLS data");
+      const errorMessage = 'error' in mlsData ? mlsData.error : "Failed to generate MLS data";
+      throw new Error(errorMessage);
     }
     
     logger.debug("[generateMLSDataWithStorage] Response from backend:", mlsData);
-    logger.debug("[generateMLSDataWithStorage] tax_data_applied:", mlsData.tax_data_applied);
+    logger.debug("[generateMLSDataWithStorage] tax_data_applied:", (mlsData as MLSDataResponse).tax_data_applied);
 
     return {
-      mlsData,
+      mlsData: mlsData as MLSDataResponse,
       photoUrls,
     };
   } catch (error) {
@@ -1057,13 +1058,14 @@ export async function generateWalkthroughVideo(
       API_TIMEOUTS.videoGeneration
     );
 
-    const result = await parseJsonResponse<VideoGenerationResponse>(response);
+    const result = await parseJsonResponse<VideoGenerationResponse | { success: false; error: string }>(response);
 
     if (!response.ok || !result.success) {
-      throw new Error(result.error || "Failed to generate video");
+      const errorMessage = 'error' in result ? result.error : "Failed to generate video";
+      throw new Error(errorMessage);
     }
 
-    return result;
+    return result as VideoGenerationResponse;
   } catch (error) {
     console.error("Error in generateWalkthroughVideo:", error);
     throw error;

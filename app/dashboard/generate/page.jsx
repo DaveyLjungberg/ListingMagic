@@ -1136,27 +1136,39 @@ export default function GeneratePage() {
       descState.photoUploaderDescRef.current.setPhotosFromUrls(urls);
     }
 
-    // Set generated content states
+    // Set generated content states (build fresh object, don't merge with prev)
+    const newGenerationState = {
+      publicRemarks: { status: "idle", data: null, error: null },
+      features: { status: "idle", data: null, error: null },
+    };
+    
     if (listing.public_remarks) {
-      descState.setGenerationState(prev => ({
-        ...prev,
-        publicRemarks: { status: "success", data: { text: listing.public_remarks }, error: null },
-      }));
+      newGenerationState.publicRemarks = {
+        status: "success",
+        data: { text: listing.public_remarks },
+        error: null,
+      };
     }
+    
     if (listing.features) {
       try {
         const featuresData = typeof listing.features === "string" ? JSON.parse(listing.features) : listing.features;
-        descState.setGenerationState(prev => ({
-          ...prev,
-          features: { status: "success", data: { categorized_features: featuresData }, error: null },
-        }));
+        newGenerationState.features = {
+          status: "success",
+          data: { categorized_features: featuresData },
+          error: null,
+        };
       } catch {
-        descState.setGenerationState(prev => ({
-          ...prev,
-          features: { status: "success", data: { features_list: [listing.features] }, error: null },
-        }));
+        newGenerationState.features = {
+          status: "success",
+          data: { features_list: [listing.features] },
+          error: null,
+        };
       }
     }
+    
+    // Set the complete state at once (not merging with prev)
+    descState.setGenerationState(newGenerationState);
 
     // Auto-expand Public Remarks
     if (listing.public_remarks) {

@@ -87,8 +87,8 @@ export async function POST(req) {
     const allowedOrigins = [
       process.env.NEXT_PUBLIC_SITE_URL,
       "https://listing-magic.vercel.app",
-      "http://localhost:3000",
-      "http://localhost:3001",
+      // Only allow localhost in development
+      ...(process.env.NODE_ENV === "development" ? ["http://localhost:3000", "http://localhost:3001"] : [])
     ].filter(Boolean);
 
     const isValidUrl = (url) => {

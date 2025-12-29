@@ -165,7 +165,7 @@ Credits control access to listing generation. The system supports both individua
 
 **Priority**: Domain credits are used first, then personal credits.
 
-**Credit Refunds**: If generation fails after a credit is consumed, the system automatically refunds 1 credit via the `increment_credits` RPC. Users see a toast: "Generation failed. Credit refunded." This ensures users are never charged for unsuccessful generations.
+**Credit Refunds**: If generation fails after a credit is consumed, the system automatically refunds 1 credit via the `refund_credit_attempt` RPC. Users see a toast: "Generation failed. Credit refunded." This ensures users are never charged for unsuccessful generations.
 
 ### Database Schema
 ```sql
@@ -197,11 +197,11 @@ const result = await useCredit();
 ```
 
 ### Supabase RPC Functions
+- `add_credits(owner, amount)` - Add credits to personal or team balance (primary function for purchases)
 - `check_and_decrement_credits(user_email)` - Use a credit (legacy, no attempt tracking)
 - `check_and_decrement_credits_with_attempt(user_email, attempt_id)` - Use a credit with attempt tracking (recommended)
 - `get_credit_balance(user_email)` - Get balance
-- `add_credits(owner, amount)` - Add credits (admin)
-- `increment_credits(user_email, amount)` - Refund/increment personal credits (legacy)
+- `increment_credits(user_email, amount)` - Add personal credits (legacy, kept for compatibility)
 - `refund_credit_attempt(user_email, attempt_id, amount)` - Idempotent refund by attempt (recommended)
 
 **Important - RPC Parameter Naming**: 
@@ -521,11 +521,17 @@ git push origin main
 None currently active.
 
 ### Solved Issues (Don't Re-Fix)
+- ✅ **Team credit support** → Implemented full team/domain credit purchasing (Dec 29, 2025):
+  - Created `add_credits(owner, amount)` RPC function in Supabase
+  - Supports both personal (email) and team (domain) credit pools
+  - Updated webhook to use new RPC instead of `increment_credits`
+  - Team credits shared by all users with same email domain
+  - Affects: `app/api/stripe/webhook/route.js`, Supabase RPC functions
 - ✅ **Stripe webhook credits not populating** → Fixed RPC function mismatch (Dec 29, 2025):
-  - Webhook was calling non-existent `add_credits` RPC function
-  - Changed to use existing `increment_credits(user_email, amount)` function
+  - Webhook was initially calling non-existent `add_credits` RPC function
+  - Temporarily used `increment_credits` as a quick fix (personal credits only)
+  - Then implemented full `add_credits` RPC to support both personal and team credits
   - All three credit packages now successfully add credits after purchase
-  - ⚠️ Team credits not fully supported yet (requires new `add_credits` RPC)
   - Affects: `app/api/stripe/webhook/route.js`
 - ✅ **Previous listing data bleed-through** → State fully cleared before loading new listing (Dec 29, 2025):
   - `handleLoadDescListing` now clears ALL state (descriptions, MLS, video) before loading

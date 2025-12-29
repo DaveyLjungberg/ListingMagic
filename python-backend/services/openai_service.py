@@ -178,32 +178,51 @@ class OpenAIService:
             return ExtractedFeatures()
 
         try:
-            # Build message content with images and prompt
-            content = image_contents + [{"type": "text", "text": PHOTO_ANALYSIS_PROMPT}]
+            # Build content parts for the user message
+            # Responses API requires input to be message objects with role and content
+            content_parts = []
 
-            response = await self.client.chat.completions.create(
+            # Add text prompt first
+            content_parts.append({"type": "input_text", "text": PHOTO_ANALYSIS_PROMPT})
+
+            # Add images
+            for img in image_contents:
+                if img["type"] == "image_url":
+                    content_parts.append({
+                        "type": "input_image",
+                        "image_url": img["image_url"]["url"],
+                        "detail": img["image_url"].get("detail", "high")
+                    })
+
+            # Build input as a list of message objects (required by Responses API)
+            input_messages = [
+                {
+                    "role": "user",
+                    "content": content_parts
+                }
+            ]
+
+            # Use Responses API with max_output_tokens
+            response = await self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ],
-                max_tokens=2000,
+                input=input_messages,
+                max_output_tokens=2000,
                 temperature=0.3  # Lower temperature for more factual analysis
             )
 
-            # Parse response
-            response_text = response.choices[0].message.content
+            # Parse response from Responses API
+            response_text = response.output_text if response.output_text else ""
             features = self._parse_extracted_features(response_text)
 
-            # Log usage
-            usage = response.usage
+            # Log usage - Responses API uses different field names
             elapsed_ms = int((time.time() - start_time) * 1000)
+            total_tokens = 0
+            if hasattr(response, 'usage') and response.usage:
+                total_tokens = getattr(response.usage, 'input_tokens', 0) + getattr(response.usage, 'output_tokens', 0)
 
             logger.info(
                 f"Photo analysis complete in {elapsed_ms}ms. "
-                f"Tokens: {usage.total_tokens if usage else 'N/A'}"
+                f"Tokens: {total_tokens if total_tokens else 'N/A'}"
             )
 
             return features
@@ -265,35 +284,51 @@ class OpenAIService:
                 highlight_features=highlight_features
             )
 
-            # Prepare message content
-            content = []
+            # Build content parts for the user message
+            # Responses API requires input to be message objects with role and content
+            content_parts = []
+
+            # Add text prompt first
+            content_parts.append({"type": "input_text", "text": prompt})
 
             # Add images if available
             if property_details.photos:
                 image_contents = self._prepare_images_for_vision(property_details.photos)
-                content.extend(image_contents)
+                for img in image_contents:
+                    if img["type"] == "image_url":
+                        content_parts.append({
+                            "type": "input_image",
+                            "image_url": img["image_url"]["url"],
+                            "detail": img["image_url"].get("detail", "high")
+                        })
 
-            # Add text prompt
-            content.append({"type": "text", "text": prompt})
+            # Build input as a list of message objects (required by Responses API)
+            input_messages = [
+                {
+                    "role": "user",
+                    "content": content_parts
+                }
+            ]
 
-            response = await self.client.chat.completions.create(
+            # Use Responses API with max_output_tokens
+            response = await self.client.responses.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": PUBLIC_REMARKS_SYSTEM},
-                    {"role": "user", "content": content}
-                ],
-                max_tokens=self.config.max_tokens,
+                instructions=PUBLIC_REMARKS_SYSTEM,
+                input=input_messages,
+                max_output_tokens=self.config.max_tokens,
                 temperature=self.config.temperature
             )
 
-            # Extract response
-            generated_text = response.choices[0].message.content.strip()
+            # Extract response from Responses API
+            generated_text = response.output_text.strip() if response.output_text else ""
             word_count = len(generated_text.split())
 
-            # Calculate usage and cost
-            usage_data = response.usage
-            input_tokens = usage_data.prompt_tokens if usage_data else 0
-            output_tokens = usage_data.completion_tokens if usage_data else 0
+            # Calculate usage and cost - Responses API uses different field names
+            input_tokens = 0
+            output_tokens = 0
+            if hasattr(response, 'usage') and response.usage:
+                input_tokens = getattr(response.usage, 'input_tokens', 0)
+                output_tokens = getattr(response.usage, 'output_tokens', 0)
             elapsed_ms = int((time.time() - start_time) * 1000)
 
             cost = self._calculate_cost(input_tokens, output_tokens)

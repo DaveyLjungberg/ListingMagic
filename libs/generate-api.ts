@@ -17,7 +17,6 @@ import type {
   FeaturesRequest,
   MLSDataRequest,
   MLSDataResponse,
-  MLSModel,
 } from "@/types/api";
 import { uploadPhotosToStorage } from "./supabase-storage-upload";
 import {
@@ -423,6 +422,33 @@ async function fetchWithTimeout(
 }
 
 /**
+ * Safely parse JSON response, handling non-JSON error responses
+ * Prevents "Unexpected token <" errors when backend returns HTML/plain text
+ * @param response - Fetch Response object
+ * @returns Parsed JSON object
+ * @throws Error with snippet of non-JSON response
+ */
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  const responseText = await response.text();
+  
+  // Handle empty response
+  if (!responseText || responseText.trim() === '') {
+    throw new Error(`Server error (${response.status}): Empty response`);
+  }
+  
+  // Try to parse as JSON
+  try {
+    return JSON.parse(responseText) as T;
+  } catch (parseError) {
+    // Backend returned non-JSON (likely HTML error page or plain text)
+    const snippet = responseText.substring(0, 200);
+    throw new Error(
+      `Server error (${response.status}): ${snippet}${responseText.length > 200 ? '...' : ''}`
+    );
+  }
+}
+
+/**
  * Generate public remarks (listing description)
  */
 export async function generatePublicRemarks(
@@ -444,7 +470,8 @@ export async function generatePublicRemarks(
     API_TIMEOUTS.generation
   );
 
-  const data = await response.json();
+  // Use safe JSON parsing helper
+  const data = await parseJsonResponse<PublicRemarksResponse>(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Failed to generate public remarks");
@@ -476,7 +503,8 @@ export async function generateFeatures(
     API_TIMEOUTS.generation
   );
 
-  const data = await response.json();
+  // Use safe JSON parsing helper
+  const data = await parseJsonResponse<FeaturesResponse>(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Failed to generate features");
@@ -742,15 +770,13 @@ export function getFriendlyErrorMessage(error: Error | string): string {
 
 /**
  * Extract MLS data from property photos using AI vision
- * Uses Claude by default - can handle all photos in one call for best accuracy
+ * Backend selects the optimal model automatically
  * @param photos - Array of photo data with files
  * @param address - Full property address string
- * @param model - AI model to use: 'claude' (default, best), 'gpt', or 'gemini'
  */
 export async function generateMLSData(
   photos: PhotoData[],
-  address: string,
-  model: MLSModel = "claude"
+  address: string
 ): Promise<MLSDataResponse> {
   // Convert photos to base64 for MLS extraction
   const images = await convertPhotosForMLS(photos);
@@ -762,11 +788,10 @@ export async function generateMLSData(
   const request: MLSDataRequest = {
     images,
     address,
-    model,
   };
 
   const response = await fetchWithTimeout(
-    "/api/generate-mls-data",
+    "/api/extract-mls-data",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -775,7 +800,7 @@ export async function generateMLSData(
     API_TIMEOUTS.mlsExtraction
   );
 
-  const data = await response.json();
+  const data = await parseJsonResponse<MLSDataResponse>(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Failed to extract MLS data");
@@ -826,7 +851,6 @@ export const MOCK_MLS_DATA: MLSDataResponse = {
     total_finished_sqft_estimate: "medium",
     lot_size_estimate: "low",
   },
-  model_used: "gemini",
   processing_time_ms: 3500,
   photos_analyzed: 8,
 };
@@ -846,32 +870,30 @@ export async function generateMLSDataMock(): Promise<MLSDataResponse> {
 
 /**
  * Generate MLS data from photo URLs (bypasses payload limits)
+ * Backend selects the optimal model automatically
  * @param photoUrls - Array of public URLs to photos in Supabase Storage
  * @param address - Full property address string
- * @param model - AI model to use: 'claude' (default), 'gpt', or 'gemini'
  */
 export async function generateMLSDataFromURLs(
   photoUrls: string[],
-  address: string,
-  model: MLSModel = "claude"
+  address: string
 ): Promise<MLSDataResponse> {
-  logger.debug(`Generating MLS data from ${photoUrls.length} photo URLs using ${model}`);
+  logger.debug(`Generating MLS data from ${photoUrls.length} photo URLs`);
 
   const response = await fetchWithTimeout(
-    "/api/generate-mls-data-urls",
+    "/api/extract-mls-data",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         photo_urls: photoUrls,
         address: address,
-        model: model,
       }),
     },
     API_TIMEOUTS.mlsExtraction
   );
 
-  const data = await response.json();
+  const data = await parseJsonResponse<MLSDataResponse>(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Failed to extract MLS data from URLs");
@@ -894,21 +916,21 @@ export interface TaxData {
  * Generate MLS data with Supabase Storage upload
  * Uploads photos to storage first, then sends URLs directly to backend
  * This bypasses Vercel's 4.5MB payload limit
+ * Backend selects the optimal model automatically
  * @param photos - Array of photo data with files
  * @param address - Full property address string
  * @param userId - User ID for storage path
- * @param model - AI model to use: 'claude' (default), 'gpt', or 'gemini'
  * @param onProgress - Optional callback for progress updates
  * @param taxData - Optional tax data from ATTOM API to override AI estimates
+ * @param existingUrls - Optional: use existing URLs instead of uploading
  */
 export async function generateMLSDataWithStorage(
   photos: PhotoData[],
   address: string,
   userId: string,
-  model: MLSModel = "claude",
   onProgress?: (message: string) => void,
   taxData?: TaxData,
-  existingUrls?: string[]  // Optional: use existing URLs instead of uploading
+  existingUrls?: string[]
 ): Promise<{ mlsData: MLSDataResponse; photoUrls: string[] }> {
   try {
     let photoUrls: string[];
@@ -917,7 +939,7 @@ export async function generateMLSDataWithStorage(
     if (existingUrls && existingUrls.length > 0 && photos.length === 0) {
       logger.debug("[generateMLSDataWithStorage] Using existing photo URLs:", existingUrls.length);
       photoUrls = existingUrls;
-      onProgress?.(`Using ${photoUrls.length} existing photos. Analyzing with ${model}...`);
+      onProgress?.(`Using ${photoUrls.length} existing photos. Analyzing...`);
     } else {
       // Step 1: Upload photos to Supabase Storage
       onProgress?.("Uploading photos to storage...");
@@ -932,25 +954,21 @@ export async function generateMLSDataWithStorage(
       }
 
       photoUrls = uploadedUrls;
-      onProgress?.(`${photoUrls.length} photos uploaded. Analyzing with ${model}...`);
+      onProgress?.(`${photoUrls.length} photos uploaded. Analyzing...`);
     }
 
-    // Step 2: Send the ACTUAL URLS (not photos) directly to backend
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://listingmagic-production.up.railway.app";
+    // Step 2: Call Next.js API route (model-agnostic)
+    logger.debug("[generateMLSDataWithStorage] Sending tax_data:", taxData);
 
-    // Log tax data being sent to backend
-    logger.debug("[generateMLSDataWithStorage] Sending tax_data to backend:", taxData);
-
-    const requestBody = {
+    const requestBody: MLSDataRequest = {
       photo_urls: photoUrls,
       address,
-      model,
-      tax_data: taxData, // Pass tax data to backend for override
+      tax_data: taxData,
     };
-    logger.debug("[generateMLSDataWithStorage] Full request body:", JSON.stringify(requestBody, null, 2));
+    logger.debug("[generateMLSDataWithStorage] Request body:", JSON.stringify(requestBody, null, 2));
 
     const response = await fetchWithTimeout(
-      `${backendUrl}/api/generate-mls-data-urls`,
+      "/api/extract-mls-data",
       {
         method: "POST",
         headers: {
@@ -961,12 +979,12 @@ export async function generateMLSDataWithStorage(
       API_TIMEOUTS.mlsExtraction
     );
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to generate MLS data");
+    const mlsData = await parseJsonResponse<MLSDataResponse>(response);
+    
+    if (!response.ok || !mlsData.success) {
+      throw new Error(mlsData.error || "Failed to generate MLS data");
     }
-
-    const mlsData = await response.json();
+    
     logger.debug("[generateMLSDataWithStorage] Response from backend:", mlsData);
     logger.debug("[generateMLSDataWithStorage] tax_data_applied:", mlsData.tax_data_applied);
 
@@ -1035,15 +1053,10 @@ export async function generateWalkthroughVideo(
       API_TIMEOUTS.videoGeneration
     );
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to generate video");
-    }
+    const result = await parseJsonResponse<VideoGenerationResponse>(response);
 
-    const result = await response.json();
-
-    if (!result.success) {
-      throw new Error("Video generation failed");
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || "Failed to generate video");
     }
 
     return result;
@@ -1141,12 +1154,7 @@ export async function refineContent(
       API_TIMEOUTS.generation
     );
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to refine content");
-    }
-
-    return await response.json();
+    return await parseJsonResponse<RefineContentResponse>(response);
   } catch (error) {
     console.error("Error in refineContent:", error);
     throw error;
@@ -1182,12 +1190,7 @@ export async function checkFairHousingCompliance(
       API_TIMEOUTS.default
     );
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to check compliance");
-    }
-
-    return await response.json();
+    return await parseJsonResponse<ComplianceCheckResponse>(response);
   } catch (error) {
     console.error("Error in checkFairHousingCompliance:", error);
     throw error;

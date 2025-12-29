@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, Check } from "lucide-react";
 import DashboardHeader from "@/components/DashboardHeader";
 import { supabase } from "@/libs/supabase";
+import toast from "react-hot-toast";
 
 /**
  * Pricing Page - Credit purchase options
@@ -13,6 +14,7 @@ import { supabase } from "@/libs/supabase";
 export default function PricingPage() {
   const [user, setUser] = useState(null);
   const [creditScope, setCreditScope] = useState("personal"); // "personal" or "team"
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get current user on mount
   useEffect(() => {
@@ -41,6 +43,7 @@ export default function PricingPage() {
       credits: 1,
       price: 20,
       pricePerCredit: 20,
+      stripePrice: process.env.NEXT_PUBLIC_STRIPE_PRICE_STARTER || "price_starter",
       badge: null,
       borderClass: "border-slate-200",
       shadowClass: "shadow-sm",
@@ -51,6 +54,7 @@ export default function PricingPage() {
       credits: 10,
       price: 150,
       pricePerCredit: 15,
+      stripePrice: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO || "price_pro",
       badge: { text: "Most Popular", color: "bg-teal-100 text-teal-700 border-teal-200" },
       borderClass: "border-slate-200",
       shadowClass: "shadow-sm",
@@ -61,6 +65,7 @@ export default function PricingPage() {
       credits: 50,
       price: 400,
       pricePerCredit: 8,
+      stripePrice: process.env.NEXT_PUBLIC_STRIPE_PRICE_AGENCY || "price_agency",
       badge: null,
       borderClass: "border-indigo-600",
       shadowClass: "shadow-[0_0_20px_rgba(79,70,229,0.15)]",
@@ -74,9 +79,49 @@ export default function PricingPage() {
     "Feature Sheet",
   ];
 
-  const handleSelectPackage = (tierId) => {
-    // TODO: Wire up Stripe checkout
-    console.log(`Selected package: ${tierId}`);
+  const handleSelectPackage = async (tier) => {
+    if (!user?.email) {
+      toast.error("Please log in to purchase credits");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceId: tier.stripePrice,
+          quantity: 1, // Always 1 for per-pack pricing
+          creditsAmount: tier.credits, // Actual credits to grant (1/10/50)
+          creditType: creditScope === "team" ? "domain" : "personal", // Map team → domain
+          userEmail: user.email,
+          successUrl: `${window.location.origin}/dashboard/generate?purchase=success`,
+          cancelUrl: `${window.location.origin}/dashboard/pricing?canceled=1`,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create checkout session");
+      }
+
+      const { url } = await response.json();
+      
+      if (url) {
+        // Redirect to Stripe Checkout
+        window.location.href = url;
+      } else {
+        toast.error("Failed to create checkout session");
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+      toast.error(error.message || "Something went wrong");
+      setIsLoading(false);
+    }
+    // Note: Don't setIsLoading(false) if redirect succeeds - page will unload
   };
 
   return (
@@ -146,10 +191,18 @@ export default function PricingPage() {
 
               {/* Select Button */}
               <button
-                onClick={() => handleSelectPackage(tier.id)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors mb-6"
+                onClick={() => handleSelectPackage(tier)}
+                disabled={isLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors mb-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Select Package
+                {isLoading ? (
+                  <>
+                    <span className="loading loading-spinner loading-sm"></span>
+                    Processing...
+                  </>
+                ) : (
+                  "Select Package"
+                )}
               </button>
 
               {/* Features List */}

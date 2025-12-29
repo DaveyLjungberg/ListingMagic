@@ -10,12 +10,85 @@ You are an expert full-stack developer working on **QuickList**, a SaaS that gen
 - **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS (Vercel)
 - **Backend**: Python FastAPI (Railway)
 - **Database**: Supabase PostgreSQL + Auth + Storage
-- **AI**: GPT-4o (primary), Gemini Pro (secondary)
+- **AI**: OpenAI gpt-5.2 (primary), Gemini gemini-2.0-flash (fallback for infra errors only)
 
 **URLs**:
 - Frontend: https://listing-magic.vercel.app
 - Backend: https://listingmagic-production.up.railway.app
 - Database: https://vbfwcemtkgymygccgffl.supabase.co
+
+## AI Model Architecture (Unified Service)
+
+**Primary**: OpenAI `gpt-5.2` for ALL generation tasks
+**Fallback**: Google `gemini-2.0-flash` (infrastructure errors ONLY)
+
+**API**: Uses OpenAI Responses API (`client.responses.create()`) with:
+- `instructions` for system prompt
+- `input` for user content - **MUST be a list of MESSAGE OBJECTS** (see format below)
+- `max_output_tokens` (NOT `max_tokens`)
+- `response.output_text` for result extraction
+
+**CRITICAL - Correct Input Format**:
+```python
+# input MUST be a list of message objects with role and content
+response = await client.responses.create(
+    model="gpt-5.2",
+    instructions=system_prompt,
+    input=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": user_prompt},
+                {"type": "input_image", "image_url": photo_url, "detail": "high"},
+            ]
+        }
+    ],
+    temperature=0.7,
+    max_output_tokens=1200
+)
+# WRONG: input=[{"type": "input_text", ...}] ← flat list causes 400 error
+# RIGHT: input=[{"role": "user", "content": [...]}] ← message object format
+```
+
+**Fallback Triggers** (use Gemini):
+- Network/connection errors
+- Timeouts
+- Rate limits (429)
+- Server errors (5xx)
+
+**No Fallback** (fix at source):
+- Fair Housing violations
+- JSON validation errors
+- Content quality issues
+
+**Usage**:
+```python
+from services.ai_generation_service import generate_content_with_fallback
+
+result = await generate_content_with_fallback(
+    system_prompt=..., user_prompt=..., photo_urls=[...],
+    task_type="public_remarks",  # or "features", "mls"
+    temperature=0.7, max_output_tokens=1200
+)
+```
+
+**Frontend is Model-Agnostic**:
+- The frontend does NOT know which AI provider/model is used
+- All generation endpoints (`/api/generate-public-remarks`, `/api/generate-features`, `/api/extract-mls-data`) proxy to the backend
+- The backend handles all model selection and fallback logic
+- Provider/model metadata is ONLY shown in dev/debug mode (gated by `NODE_ENV !== "production"` and `NEXT_PUBLIC_DEBUG_AI_METADATA="true"`)
+
+## MANDATORY: Real-Time Documentation Updates
+
+**Update docs AS YOU WORK, not at the end of a session.**
+
+When you make changes to QuickList, immediately update:
+- **Code changes** → `CLAUDE.md`, `.cursorrules`
+- **Bug fixes** → Add to "Known Issues" sections + `.agent-workspace/logs/bugs/`
+- **Features** → Update codebase structure, generation flow
+- **Tech decisions** → `.agent-workspace/context/tech-decisions.md`
+
+**Rule**: If you changed code, update the docs. No exceptions.
 
 ## CRITICAL: Fair Housing Compliance
 
@@ -37,32 +110,81 @@ ALL AI-generated descriptions MUST follow Fair Housing rules:
 ```
 listing-magic/
 ├── app/                          # Next.js App Router
-│   ├── dashboard/generate/       # Main generation page
-│   │   ├── components/           # DescriptionsTab, MLSDataTab, ResultsTabs
-│   │   ├── hooks/                # useDescriptionsState, useMLSState, useVideoGeneration
-│   │   └── page.jsx              # Main orchestrator
+│   ├── admin/                    # Admin-only pages
+│   │   └── headlights/           # Analytics dashboard (Davey + John only)
+│   ├── auth/                     # Authentication pages
+│   │   ├── login/page.jsx        # Email/OAuth login with "Remember Me"
+│   │   ├── signup/page.jsx       # Account creation with source tracking
+│   │   └── callback/page.jsx     # OAuth callback handler
+│   ├── api/
+│   │   ├── credits/              # Credit system API
+│   │   │   ├── route.ts          # GET balance, POST use credit
+│   │   │   └── add/route.ts      # POST add credits (admin)
+│   │   ├── stripe/               # Stripe payment integration
+│   │   │   ├── checkout/route.js # POST create credit purchase checkout
+│   │   │   └── webhook/route.js  # POST webhook for credit fulfillment + revenue tracking
+│   │   └── listings/             # Listings CRUD
+│   ├── dashboard/
+│   │   ├── generate/             # Main generation page
+│   │   │   ├── components/       # DescriptionsTab, MLSDataTab, ResultsTabs
+│   │   │   ├── hooks/            # useDescriptionsState, useMLSState, useVideoGeneration
+│   │   │   └── page.jsx          # Main orchestrator
+│   │   └── pricing/              # Credit purchase page
+│   │       └── page.jsx          # Pricing cards + team toggle
+├── components/
+│   ├── DashboardHeader.jsx       # Header with "Buy Credits" button
+│   ├── LayoutClient.js           # Client wrapper with session check
+│   └── listing-magic/
+│       ├── NameListingModal.jsx  # Credit gatekeeper modal
+│       └── AddressInput.jsx      # Address entry component
 ├── libs/
 │   ├── generate-api.ts           # Backend API client
-│   └── supabase.ts               # Supabase client
+│   ├── credits.ts                # Credit system client
+│   ├── supabase.js               # Supabase client
+│   └── utils.js                  # Utility functions (getDomainFromEmail)
 ├── python-backend/               # FastAPI backend
 │   ├── endpoints/                # API endpoints
-│   ├── services/                 # AI provider integrations (openai, gemini)
+│   ├── services/                 # AI provider integrations
+│   │   └── ai_generation_service.py  # Unified AI with fallback (USE THIS)
 │   ├── compliance/               # Fair Housing validation
 │   └── utils/                    # Prompts, helpers
+├── supabase/
+│   └── migrations/               # Database migrations
+│       └── 001_credit_balances.sql  # Credit system schema + RPC functions
 └── .agent-workspace/             # Agent memory (READ THIS FIRST)
 ```
 
 ## Generation Flow (Current)
 
+**IMPORTANT: Credit Gatekeeper** - Credits checked BEFORE generation.
+
 1. **Upload Photos** → Supabase Storage
-2. **Analyze Photos** → GPT-4o Vision (shows "Photo X of Y" progress)
-3. **Generate Public Remarks** → GPT-4o (overlay closes when done)
-4. **Background Tasks** (sequential):
-   - Features List → Gemini
+2. **Name Listing Modal** → Calls `check_and_decrement_credits` RPC
+   - Has credits: proceed | No credits: redirect to pricing
+3. **Analyze Photos** → Backend AI (shows "Photo X of Y" progress)
+4. **Generate Public Remarks** (CRITICAL STEP) → Backend AI
+   - ✅ Success: Overlay closes, proceed to background tasks
+   - ❌ Failure: Stop immediately, refund credit, show error, do NOT continue
+5. **Background Tasks** (only if Step 4 succeeded):
+   - Features List → Backend AI
    - Video Generation → FFmpeg (silent slideshow)
-   - MLS Extraction → Gemini
+   - MLS Extraction → Backend AI
+
+**All AI tasks use unified service** (`services/ai_generation_service.py`) with automatic Gemini fallback for infrastructure errors only.
+
+**Frontend API Routes** (model-agnostic):
+- `/api/generate-public-remarks` → Proxies to backend
+- `/api/generate-features` → Proxies to backend
+- `/api/extract-mls-data` → Unified MLS extraction (accepts either base64 images or photo URLs)
+  - Legacy routes `/api/generate-mls-data` and `/api/generate-mls-data-urls` forward to this endpoint
 
 **Result Tabs**: Public Remarks | Features Sheet | Video Tour
+
+**Error Handling**:
+- If Public Remarks (Step 1) fails: Stop pipeline, refund credit idempotently (by attempt_id), show error
+- If background tasks fail: No refund (user has content), errors in tabs
+- Wake lock and overlay cleanup use single-shot pattern (no double-cleanup)
+- All API responses use safe JSON parsing (handles HTML/plain text errors)
 
 ## Coding Standards
 
@@ -143,23 +265,243 @@ async def endpoint_name(request: RequestModel):
 
 | What | Where |
 |------|-------|
+| Login page (email + OAuth) | `app/auth/login/page.jsx` |
+| Signup page (with source tracking) | `app/auth/signup/page.jsx` |
+| OAuth callback handler | `app/auth/callback/page.jsx` |
+| Session check logic | `components/LayoutClient.js` |
+| Admin analytics dashboard | `app/admin/headlights/page.jsx` |
 | Main generation UI | `app/dashboard/generate/components/DescriptionsTab.jsx` |
 | MLS data display | `app/dashboard/generate/components/MLSDataTab.jsx` |
-| Backend API client | `libs/generate-api.ts` |
+| Credit gatekeeper modal | `components/listing-magic/NameListingModal.jsx` |
+| Pricing page | `app/dashboard/pricing/page.jsx` |
+| Dashboard header | `components/DashboardHeader.jsx` |
+| Backend API client (model-agnostic) | `libs/generate-api.ts` |
+| Credit system client | `libs/credits.ts` |
+| Credit API | `app/api/credits/route.ts` |
+| Stripe checkout | `app/api/stripe/checkout/route.js` |
+| Stripe webhook (with revenue tracking) | `app/api/stripe/webhook/route.js` |
+| Generation proxies | `app/api/generate-public-remarks/route.ts`, `app/api/generate-features/route.ts` |
+| MLS extraction (unified) | `app/api/extract-mls-data/route.ts` |
+| Utility functions | `libs/utils.js` |
 | AI prompts | `python-backend/utils/prompt_templates.py` |
+| Unified AI service | `python-backend/services/ai_generation_service.py` |
 | Fair Housing rules | `python-backend/compliance/fair_housing.py` |
 | Agent memory | `.agent-workspace/` |
 
 ## Known Issues (Don't Re-Debug)
 
-- ✅ Slow generation → Use GPT-4o not GPT-4.1
+- ✅ **User analytics tracking** → Implemented comprehensive tracking system (Dec 28, 2025)
+  - Session logging for both email and OAuth logins
+  - Signup source tracking with dropdown selection  
+  - Revenue tracking in Stripe webhook
+  - Admin analytics dashboard at `/admin/headlights`
+  - "Remember Me" feature with automatic session expiry
+- ✅ **Google OAuth integration** → Implemented Supabase OAuth flow (Dec 28, 2025)
+  - Login page supports Google and Apple OAuth
+  - Created OAuth callback handler
+  - Session tracking integrated into OAuth flow
+- ✅ Photo categorization timeout → Increased timeout + deterministic fallback (Dec 26, 2025)
+  - Timeout 15s → 25s (configurable, capped <30s)
+  - Deterministic fallback using spreadSample + pickFromThird utilities
+  - Fallback preserves category representation via quotas + album-wide sampling
+  - Features always gets diverse coverage (no more "Not provided")
+  - Guardrails throw error if selection produces empty list
+- ✅ Features sheet "Not provided (no photos/data…)" after gpt-5.2 migration → Fixed base64 photo forwarding (Dec 27, 2025)
+  - Backend endpoints were only forwarding `photo.url` into unified AI service, ignoring `photo.base64`
+  - Fix: convert base64 photos into `data:<mime>;base64,...` URLs when building `photo_urls`
+  - Gemini fallback now supports `data:` URLs too
+- ✅ RPC fallback too broad + useless error logs → Tightened to PGRST202-only + actionable logging (Dec 26, 2025)
+  - Only fall back when error.code === "PGRST202"
+  - logRpcError() logs code/message/details/hint/status/statusText
+  - Refund failures show toast with error code
+- ✅ photoCompliance client-bundle → Temporarily disabled (Dec 26, 2025)
+  - face-api.js/tfjs try to resolve Node fs in browser
+  - Removed client import, scan shows "temporarily disabled" toast
+- ✅ `/api/credits` 500 on refresh → Made service-role optional, fallback to user auth (Dec 27, 2025)
+  - Added `export const runtime = "nodejs"` to guarantee Node runtime
+  - `getServiceClient()` returns `null` instead of throwing when env vars missing
+  - GET/POST prefer service client, fallback to authenticated supabase if unavailable
+  - Client-side safe JSON parsing handles non-JSON 500 responses gracefully
+  - 401 responses handled quietly without console noise
+- ✅ OpenAI 400 "max_tokens unsupported" → Switched to Responses API (Dec 26, 2025)
+  - Uses `client.responses.create()` with `max_output_tokens`
+  - Uses `instructions` for system prompt, `input` for content
+  - Uses `input_image`/`input_text` content types
+- ✅ OpenAI 400 "Invalid value: 'input_text'" → Fixed input format (Dec 26, 2025)
+  - `input` must be list of MESSAGE OBJECTS: `[{"role": "user", "content": [...]}]`
+  - WRONG: `input=[{"type": "input_text", ...}]` (flat list)
+  - RIGHT: `input=[{"role": "user", "content": [{"type": "input_text", ...}]}]`
+- ✅ AI model fragmentation → Unified to gpt-5.2 primary + gemini-2.0-flash fallback (Dec 26, 2025)
+  - All endpoints use `services/ai_generation_service.py`
+  - Fallback ONLY for infra errors (timeouts, 5xx, rate limits)
+  - Content errors do NOT trigger fallback
+- ✅ Claude 429 TPM rate limit → Removed direct Claude calls (Dec 26, 2025)
+  - Updated `refine_content.py` and `photo_categorization.py` to use unified service
+  - Removed `import anthropic` from endpoints
+  - All endpoints now use OpenAI gpt-5.2 primary with Gemini fallback
+- ✅ Frontend model exposure → Made model-agnostic (Dec 26, 2025)
+  - Removed client-side model selection from MLS extraction
+  - Provider/model metadata is dev/debug-only (gated by env flags)
+  - All frontend routes proxy to backend without knowing which AI provider is used
+- ✅ Background tasks after Step 1 failure → Fixed pipeline (Dec 26, 2025):
+  - Public Remarks failure now stops pipeline immediately
+  - Credit refund before background tasks run
+  - Improved JSON parsing for non-JSON error responses
+- ✅ Credit double-refund risk → Idempotent refund system (Dec 26, 2025):
+  - Added `credit_transactions` table with unique constraint
+  - `refund_credit_attempt()` RPC prevents double-refunds by attempt_id
+  - Frontend generates UUID before credit consumption
+- ✅ Wake lock double-cleanup → Single-shot cleanup pattern (Dec 26, 2025):
+  - `cleanupOnce()` function with flags prevents duplicate cleanup
+  - Both success/failure paths use same cleanup
+- ✅ JSON parse errors → Reusable safe parsing helper (Dec 26, 2025):
+  - `parseJsonResponse<T>()` handles HTML/plain text gracefully
+  - Applied to all generation endpoints
+- ✅ Slow generation → Now uses gpt-5.2 (via unified service)
 - ✅ Timeout → Increased to 300s
 - ✅ MLS clearing on switch → Fixed handleLoadDescListing
 - ✅ Address lost on tab switch → AddressInput is controlled component
 - ✅ Photos not loading → Uses setPhotosFromUrls()
 - ✅ Walkthrough complexity → Feature removed (silent videos only)
+- ✅ Video not persisting → video_url saved to database, restored on listing load
+- ✅ Credit double-charging → Moved to upfront gatekeeper modal (Dec 21, 2025)
+- ✅ ATTOM duplicate API calls → Implemented cost-control (Dec 23, 2025):
+  - Client-side: session cache, in-flight lock, 60s failure cooldown, 800ms debounce
+  - Server-side: cached in `address_json.taxData`, checks before calling ATTOM
+  - Auto-fetch only (removed manual button)
 - ⚠️ Photo categorization 503 → Non-blocking, low priority
-- ⚠️ ATTOM tax data inconsistent → User can manually edit
+
+## Stripe Credit Purchases
+
+QuickList uses Stripe for credit purchases. Credits can be purchased for:
+- **Personal**: Tied to user's email (`creditType: "personal"`)
+- **Domain**: Shared team pool (`creditType: "domain"`)
+
+**Pricing Tiers** (per-pack):
+- Starter: 1 credit for $20
+- Pro: 10 credits for $150
+- Agency: 50 credits for $400
+
+**Flow**:
+1. Frontend → `POST /api/stripe/checkout` with `{priceId, quantity: 1, creditsAmount, creditType, userEmail, successUrl, cancelUrl}`
+2. Backend creates Stripe Checkout Session with:
+   - Line item quantity = 1 (buy one pack)
+   - Metadata: `{targetIdentifier, creditsAmount, creditType}` for fulfillment
+3. User completes payment
+4. Stripe → `POST /api/stripe/webhook` (checkout.session.completed)
+5. Webhook calls Supabase RPC `add_credits(owner, amount)` to increment balance
+6. Webhook calls Supabase RPC `update_user_revenue(user_email, amount)` to track revenue
+
+**Revenue Tracking** (added Dec 28, 2025):
+- Stripe webhook automatically tracks revenue after successful credit purchases
+- Revenue stored in user profile for analytics dashboard
+- For domain purchases: uses customer email from Stripe
+- For personal purchases: uses targetIdentifier (user email)
+
+**Environment Variables** (Required):
+
+Frontend:
+- `NEXT_PUBLIC_STRIPE_PRICE_STARTER` - Price ID for 1 credit pack
+- `NEXT_PUBLIC_STRIPE_PRICE_PRO` - Price ID for 10 credits pack
+- `NEXT_PUBLIC_STRIPE_PRICE_AGENCY` - Price ID for 50 credits pack
+
+Backend/Server:
+- `STRIPE_SECRET_KEY` - Stripe API key
+- `STRIPE_CREDITS_WEBHOOK_SECRET` - Webhook signing secret (or `STRIPE_WEBHOOK_SECRET`)
+- `SUPABASE_SERVICE_ROLE_KEY` - For RPC calls
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SITE_URL` - For URL validation
+
+**Important**: Stripe Prices must be configured as per-pack prices (not per-credit). Frontend always sends `quantity: 1` to Stripe; the `creditsAmount` field determines how many credits are granted via webhook.
+
+**Note**: Credits webhook (`/api/stripe/webhook`) is separate from legacy subscription webhook (`/api/webhook/stripe`).
+
+## Credits: Generation + Refunds
+
+**Credit Consumption**:
+- Gatekeeper modal (`components/listing-magic/NameListingModal.jsx`) decrements credits via RPC **before** generation starts.
+- Generates unique `attempt_id` (UUID) for idempotent refunds.
+- RPC: `check_and_decrement_credits_with_attempt(user_email, attempt_id)` → returns JSON with `{ success, source, remaining, message, attempt_id }`
+- `attempt_id` is persisted in the listing record under `address_json.attempt_id` for audit/debug.
+
+**Credit Refunds (Failed Generations)**:
+- If generation fails after a credit was consumed, the system refunds via idempotent RPC:
+  - `refund_credit_attempt(user_email, attempt_id, amount)` with `{ user_email, attempt_id, amount: 1 }`
+  - Keyed by `attempt_id` - safe to call multiple times (prevents double-refunds)
+  - Unique constraint on `(attempt_id, transaction_type)` in `credit_transactions` table
+- User-facing toast: `"Generation failed. Credit refunded."`
+
+**Important - RPC Parameter Naming**:
+- RPC args must match SQL signature keys exactly (e.g., `{ user_email: user.email, attempt_id: attemptId }`).
+- See `supabase/migrations/001_credit_balances.sql` for function signatures.
+
+## User Analytics & Tracking (Dec 28, 2025)
+
+QuickList tracks user activity for analytics and business insights.
+
+**Session Tracking**:
+- Login sessions logged for both email and OAuth (Google/Apple)
+- Tracked in: `app/auth/login/page.jsx` and `app/auth/callback/page.jsx`
+- Calls `log_user_session` RPC with user email
+- Non-blocking: errors don't prevent login
+
+**Signup Source Tracking**:
+- "How did you hear about us?" dropdown in signup form
+- Options: YouTube, TikTok, Facebook, Instagram, Google Search, Referral, Other
+- Stored via `update_user_source` RPC after successful signup
+- Used for marketing attribution
+
+**Remember Me Feature**:
+- Checkbox in login form (defaults to checked)
+- Stores preference in localStorage + sessionStorage
+- On browser restart: if unchecked, user is automatically signed out
+- Checked in `LayoutClient.js` on app mount (skips auth pages)
+
+**Admin Analytics Dashboard**:
+- Located at `/admin/headlights` (protected page)
+- Access: Only `admin@lm-intel.ai` and `jmcdrmtt00@gmail.com`
+- Metrics: accounts, logins, listings, paid listings, revenue, cost
+- Per-user table: email, brokerage, join date, source, activity, revenue, cost
+- Date filter for historical data
+- Data source: Supabase view `headlights_overview`
+
+**Required RPC Functions**:
+- `log_user_session(user_email_param TEXT)` - Log login
+- `update_user_source(user_email_param TEXT, source_param TEXT)` - Save signup source
+- `update_user_revenue(user_email_param TEXT, amount_param DECIMAL)` - Track revenue
+
+## ATTOM Tax Records API
+
+ATTOM provides property tax data (yearBuilt, lotSize, APN, county) to override AI estimates.
+
+**Endpoint**: `POST /api/lookup-tax-records`
+**ATTOM API**: `GET https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/detail`
+
+**Cost-Control Safeguards** (implemented Dec 23, 2025):
+
+| Layer | Safeguard | Implementation |
+|-------|-----------|----------------|
+| Client | Session cache | `taxCache` Map - normalized address key |
+| Client | In-flight lock | `inFlightRequests` Map with AbortController |
+| Client | Failure cooldown | 60s backoff before retrying failed address |
+| Client | Debounce | 800ms delay before auto-fetch |
+| Server | Listing cache | `address_json.taxData` in Supabase |
+
+**Flow**:
+1. Address complete → 800ms debounce
+2. Check client cache → if hit, use cached data
+3. Check in-flight lock → if request pending, skip
+4. Check failure cooldown → if failed < 60s ago, skip
+5. If `listingId` provided → check Supabase cache
+6. If no cache → call ATTOM API
+7. Cache result in client + Supabase (if `listingId`)
+
+**Environment Variable**: `ATTOM_API_KEY`
+
+**Data Format**:
+- `yearBuilt`: Integer or null (e.g., `1985`)
+- `lotSize`: String with units (e.g., `"7,500 sqft"`)
+- `apn`, `county`: String or null
 
 ## Environment
 

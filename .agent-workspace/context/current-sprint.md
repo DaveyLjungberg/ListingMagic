@@ -1,6 +1,6 @@
 # Current Sprint
 
-> **Last Updated**: December 15, 2025
+> **Last Updated**: December 16, 2025
 > **Sprint Goal**: Beta Testing Preparation
 
 ## 🎯 Current Focus
@@ -24,6 +24,9 @@ Preparing for Chelsea Barrett's beta testing in January 2025.
 - [x] **Refactored NarrativeLoader with phase-based progress** (Dec 15)
 - [x] **Real-time photo analysis progress (X of Y)** (Dec 15)
 - [x] **Reordered background generation (Features → Video → MLS)** (Dec 15)
+- [x] **Created pricing page with credit packages** (Dec 16)
+- [x] **Added "Buy Credits" button to DashboardHeader** (Dec 16)
+- [x] **Created libs/utils.js with getDomainFromEmail()** (Dec 16)
 
 ## 🔄 In Progress
 
@@ -32,7 +35,8 @@ Preparing for Chelsea Barrett's beta testing in January 2025.
 
 ## ⏳ Upcoming (After Beta)
 
-- [ ] Payment integration (Stripe)
+- [ ] Payment integration (Stripe) - Connect pricing page to Stripe checkout
+- [ ] Credit tracking system - Track user credits in database
 - [ ] Onboarding flow
 - [ ] Usage limits enforcement
 - [ ] Email notifications

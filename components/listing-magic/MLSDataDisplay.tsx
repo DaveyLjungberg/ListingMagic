@@ -298,7 +298,24 @@ export default function MLSDataDisplay({
 
       {/* Metadata */}
       <div className="text-xs text-base-content/50 text-center">
-        Analyzed {displayData.photos_analyzed} photos using {displayData.model_used} in {displayData.processing_time_ms}ms
+        Analyzed {displayData.photos_analyzed} photos
+        {displayData.processing_time_ms && ` in ${displayData.processing_time_ms}ms`}
+        
+        {/* Dev-only: Provider/Model metadata */}
+        {process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEBUG_AI_METADATA === "true" && (
+          <div className="mt-2 space-y-1 text-[10px] font-mono bg-slate-100 p-2 rounded border border-slate-200">
+            <div className="font-bold text-slate-700">DEBUG (dev-only):</div>
+            {displayData.provider_used && (
+              <div>Provider: {displayData.provider_used}</div>
+            )}
+            {displayData.model_used && (
+              <div>Model: {displayData.model_used}</div>
+            )}
+            {displayData.generation_time_ms && (
+              <div>Generation: {displayData.generation_time_ms}ms</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

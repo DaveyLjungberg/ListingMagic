@@ -58,6 +58,7 @@ interface ListingData {
     city?: string;
     state?: string;
     zip_code: string;
+    attempt_id?: string | null;
   };
   property_type: string;
   bedrooms: number | null;
@@ -67,6 +68,7 @@ interface ListingData {
   features: string | null;
   mls_data?: Record<string, unknown> | null;
   photo_urls: string[];
+  video_url?: string | null;
   ai_cost: number;
   generation_time: number;
 }
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest) {
         features: body.features,
         mls_data: body.mls_data || null,
         photo_urls: body.photo_urls,
+        video_url: body.video_url || null,
         ai_cost: body.ai_cost,
         generation_time: body.generation_time,
         created_at: new Date().toISOString(),

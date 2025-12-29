@@ -2,7 +2,7 @@
  * Generate Features API Route
  *
  * Proxies requests to Python FastAPI backend for features generation.
- * Uses Gemini 3 Pro for fast, accurate feature extraction.
+ * Backend automatically selects the optimal AI model for feature extraction.
  */
 
 import { NextRequest, NextResponse } from "next/server";

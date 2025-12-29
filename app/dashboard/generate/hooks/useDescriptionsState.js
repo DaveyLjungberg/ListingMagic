@@ -2,7 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import toast from "react-hot-toast";
-import { scanPhotoCompliance } from "@/libs/photoCompliance";
+// TODO: photoCompliance is NOT safe in client bundles - it imports face-api.js/tfjs which attempt
+// to resolve Node.js 'fs' module, causing browser bundle errors. Move to server-side API route or
+// re-enable when a proper client-safe solution is available.
 
 /**
  * Hook for managing all Descriptions tab state including photos, address, and generation state.
@@ -61,7 +63,16 @@ export function useDescriptionsState() {
   }, []);
 
   // Compliance scan handler
+  // TODO: Temporarily disabled - photoCompliance drags in face-api.js/tfjs which try to resolve
+  // Node.js 'fs' in the browser bundle. Re-enable when moved to server-side API route.
   const handleScanComplianceDesc = async () => {
+    toast.error("Photo compliance scanning is temporarily disabled", {
+      duration: 4000,
+      icon: "⚠️"
+    });
+    return;
+
+    /* Disabled implementation:
     if (photosDesc.length === 0) {
       toast.error("No photos to scan");
       return;
@@ -89,6 +100,7 @@ export function useDescriptionsState() {
     } finally {
       setScanningComplianceDesc(false);
     }
+    */
   };
 
   // Remove photo handler

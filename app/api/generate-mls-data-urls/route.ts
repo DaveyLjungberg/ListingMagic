@@ -1,22 +1,28 @@
 /**
- * Generate MLS Data from URLs API Route
+ * Generate MLS Data from URLs API Route (Legacy)
  *
- * Proxies requests to Python FastAPI backend for MLS field extraction.
- * Uses photo URLs instead of base64 to bypass payload limits.
+ * This route is maintained for backwards compatibility.
+ * New code should use /api/extract-mls-data instead.
+ * 
+ * Proxies requests to the unified extraction endpoint.
+ * Backend automatically selects the optimal AI model for MLS field extraction.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 
 // Route segment config
-export const maxDuration = 120; // 120 seconds timeout for AI processing
+export const maxDuration = 300; // 5 minutes timeout for AI processing
 export const dynamic = "force-dynamic";
-
-const BACKEND_URL = process.env.PYTHON_BACKEND_URL || "http://localhost:8000";
 
 export interface MLSDataURLsRequest {
   photo_urls: string[];
   address: string;
-  model?: "gemini" | "gpt" | "claude";
+  tax_data?: {
+    apn?: string;
+    yearBuilt?: string;
+    lotSize?: string;
+    county?: string;
+  };
 }
 
 export interface ErrorResponse {
@@ -53,23 +59,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Default to claude if no model specified
-    const requestBody = {
-      photo_urls: body.photo_urls,
-      address: body.address,
-      model: body.model || "claude",
-    };
+    console.log(`[generate-mls-data-urls] Forwarding ${body.photo_urls.length} photo URLs to unified endpoint`);
 
-    console.log(`Sending ${body.photo_urls.length} photo URLs to backend for MLS extraction`);
+    // Forward to unified extraction endpoint (model-agnostic)
+    const unifiedResponse = await fetch(
+      `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/api/extract-mls-data`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          photo_urls: body.photo_urls,
+          address: body.address,
+          tax_data: body.tax_data,
+        }),
+      }
+    );
 
-    // Call Python backend
-    const backendResponse = await fetch(`${BACKEND_URL}/api/generate-mls-data-urls`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const backendResponse = unifiedResponse;
 
     if (!backendResponse.ok) {
       const errorData = await backendResponse.json().catch(() => ({}));
@@ -90,7 +98,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        "X-Model-Used": data.model_used || "unknown",
+        "X-Request-ID": data.request_id || "",
         "X-Processing-Time": String(data.processing_time_ms || 0),
         "X-Photos-Analyzed": String(data.photos_analyzed || 0),
       },

@@ -50,104 +50,28 @@ export default function NameListingModal({ isOpen, onClose, onSubmit, user }) {
       return;
     }
 
-    // Early auth guard: Check if user is authenticated
-    if (!user || !user.email) {
-      console.error("❌ User not authenticated:", { user });
-      toast.error("User not authenticated");
-      return;
-    }
-
-    // Debug logs: Verify user object and email before RPC call
-    console.log("🔍 Debug: User object:", user);
-    console.log("🔍 Debug: User email:", user.email);
-
+    // CRITICAL FIX: Don't check credits here - only validate inputs
+    // Credits will be deducted when user actually clicks Generate
+    
     setIsLoading(true);
 
     try {
-      // Generate unique attempt_id for this generation (for idempotent refunds)
+      // Generate unique attempt_id for this generation (for tracking)
       const attemptId = crypto.randomUUID();
       console.log(`[NameListingModal] Generated attempt_id: ${attemptId}`);
 
-      // Call Supabase RPC to check and decrement credits with attempt tracking
-      // IMPORTANT: Parameter name must match SQL function signature
-      const params = {
-        user_email: user.email,
+      // Pass address data AND attempt_id to parent (no credit deduction yet)
+      onSubmit({
+        street: street.trim(),
+        zip_code: zipCode.trim(),
         attempt_id: attemptId,
-      };
-      let { data, error, status, statusText } = await supabase.rpc(
-        "check_and_decrement_credits_with_attempt",
-        params
-      );
+      });
 
-      if (error) {
-        const errorCode = error?.code;
-
-        // Only fall back to legacy RPC if the function is missing (PGRST202)
-        if (errorCode === "PGRST202") {
-          console.warn(
-            "[NameListingModal] check_and_decrement_credits_with_attempt not found (PGRST202). Falling back to legacy check_and_decrement_credits."
-          );
-
-          const legacyParams = { user_email: user.email };
-          const legacyResult = await supabase.rpc("check_and_decrement_credits", legacyParams);
-
-          data = legacyResult.data;
-          error = legacyResult.error;
-
-          if (error) {
-            logRpcError("check_and_decrement_credits", legacyParams, error, legacyResult.status, legacyResult.statusText);
-            toast.error("Failed to check credits");
-            return;
-          }
-
-          toast("Using legacy credits check (migration not deployed yet).", {
-            duration: 3500,
-            icon: "ℹ️",
-          });
-        } else {
-          // RPC exists but returned an error - log it and surface to user
-          logRpcError("check_and_decrement_credits_with_attempt", params, error, status, statusText);
-          toast.error(error?.message || "Failed to check credits");
-          return;
-        }
-      }
-
-      // Parse the response - data.success is a boolean
-      if (data && data.success) {
-        // Credit successfully used
-        const source = data.source === "domain" ? "team pool" : "personal balance";
-        
-        toast.success(
-          `1 Credit Used from ${source} (${data.remaining} remaining)`,
-          { duration: 4000, icon: "💳" }
-        );
-
-        // Pass address data AND attempt_id to parent for refunds
-        onSubmit({
-          street: street.trim(),
-          zip_code: zipCode.trim(),
-          attempt_id: attemptId,  // Pass for refunds on failure
-        });
-
-        // Reset form
-        setStreet("");
-        setZipCode("");
-      } else {
-        // Insufficient credits
-        toast.error(data.message || "Insufficient credits", {
-          duration: 3000,
-          icon: "⚠️",
-        });
-
-        // Close modal and redirect to pricing
-        onClose();
-        
-        setTimeout(() => {
-          router.push("/dashboard/pricing");
-        }, 500);
-      }
+      // Reset form
+      setStreet("");
+      setZipCode("");
     } catch (error) {
-      console.error("Error checking credits:", error);
+      console.error("Error in modal:", error);
       toast.error("Something went wrong");
     } finally {
       setIsLoading(false);

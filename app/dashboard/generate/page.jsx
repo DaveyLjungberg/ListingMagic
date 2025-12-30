@@ -479,6 +479,33 @@ export default function GeneratePage() {
       return;
     }
 
+    // CRITICAL: Deduct credit NOW (before generation starts)
+    console.log("[handleGenerateAllDesc] Deducting credit for attempt:", currentAttemptId);
+    const creditParams = {
+      user_email: user.email,
+      attempt_id: currentAttemptId,
+    };
+    
+    let creditResult = await supabase.rpc("check_and_decrement_credits_with_attempt", creditParams);
+    
+    // Fallback to legacy if function not found
+    if (creditResult.error?.code === "PGRST202") {
+      console.warn("[handleGenerateAllDesc] Using legacy credit deduction");
+      creditResult = await supabase.rpc("check_and_decrement_credits", { user_email: user.email });
+    }
+    
+    if (creditResult.error || !creditResult.data?.success) {
+      toast.error(creditResult.error?.message || "Failed to deduct credit");
+      return;
+    }
+    
+    const source = creditResult.data.source === "domain" ? "team pool" : "personal balance";
+    toast.success(
+      `1 Credit Used from ${source} (${creditResult.data.remaining} remaining)`,
+      { duration: 4000, icon: "💳" }
+    );
+
+
     // Set overlay flag for Public Remarks only
     descState.setIsGeneratingDesc(true);
     descState.setIsGeneratingBackground(true);

@@ -680,9 +680,20 @@ export default function GeneratePage() {
     user
   ) => {
     try {
+      // CRITICAL: Create full property details with ALL photos for Features/MLS
+      // The passed propertyDetails only has 20 selected photos for Public Remarks
+      // Features and MLS need ALL photos for accurate analysis
+      const fullPropertyDetails = {
+        address: propertyDetails.address,
+        photos: currentPhotoUrls.map(url => ({ url })), // All photos as URL objects
+        property_type: propertyDetails.property_type,
+      };
+      
+      console.log(`[Background] Using ${fullPropertyDetails.photos.length} photos for Features/MLS (vs ${propertyDetails.photos.length} for Public Remarks)`);
+      
       // SEQUENTIAL ORDERING: Features → Video → MLS
       
-      // Task 1: Generate Features (AWAIT)
+      // Task 1: Generate Features (AWAIT) - Use ALL photos
       console.log("[Background] Starting Features generation");
       descState.setIsGeneratingFeatures(true);
       descState.setGenerationState(prev => ({
@@ -692,7 +703,7 @@ export default function GeneratePage() {
 
       let featuresResult = null;
       try {
-        featuresResult = await generateFeatures(propertyDetails);
+        featuresResult = await generateFeatures(fullPropertyDetails); // ← Using ALL photos
         descState.setGenerationState(prev => ({
           ...prev,
           features: { status: "success", data: featuresResult, error: null },

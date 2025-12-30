@@ -40,7 +40,7 @@ router = APIRouter(tags=["MLS Data"])
 class RoomData(BaseModel):
     """Room dimensions data."""
     room_type: str
-    level: str
+    level: Optional[str] = ""  # Allow None, default to empty string
     length_ft: Optional[int] = None
     width_ft: Optional[int] = None
 

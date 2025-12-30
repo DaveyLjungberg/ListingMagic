@@ -505,6 +505,56 @@ export default function GeneratePage() {
       { duration: 4000, icon: "💳" }
     );
 
+    // CRITICAL FIX: Create listing IMMEDIATELY after credit deduction
+    // This prevents race condition between auto-save and background generation
+    let initialListingId = null;
+    if (!descState.currentListingIdDesc) {
+      console.log("[handleGenerateAllDesc] Creating initial listing before generation");
+      try {
+        const propertyAddress = descState.addressDesc
+          ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
+          : "";
+
+        const initialListingData = {
+          user_id: user.id,
+          listing_type: "descriptions",
+          property_address: propertyAddress,
+          address_json: {
+            street: descState.addressDesc.street,
+            city: descState.addressDesc.city || "",
+            state: descState.addressDesc.state || "",
+            zip_code: descState.addressDesc.zip_code,
+            apn: descState.addressDesc.apn || null,
+            yearBuilt: descState.addressDesc.yearBuilt || null,
+            lotSize: descState.addressDesc.lotSize || null,
+            county: descState.addressDesc.county || null,
+            attempt_id: currentAttemptId,
+          },
+          property_type: "single_family",
+          bedrooms: null,
+          bathrooms: null,
+          public_remarks: null,
+          features: null,
+          mls_data: null,
+          photo_urls: [],
+          ai_cost: 0,
+          generation_time: 0,
+        };
+
+        const result = await saveListing(initialListingData);
+        if (result.success) {
+          initialListingId = result.id;
+          descState.setCurrentListingIdDesc(result.id);
+          console.log("[handleGenerateAllDesc] Initial listing created:", result.id);
+        }
+      } catch (error) {
+        console.error("[handleGenerateAllDesc] Failed to create initial listing:", error);
+        // Continue anyway - listing will be created by auto-save
+      }
+    } else {
+      initialListingId = descState.currentListingIdDesc;
+      console.log("[handleGenerateAllDesc] Using existing listing ID:", initialListingId);
+    }
 
     // Set overlay flag for Public Remarks only
     descState.setIsGeneratingDesc(true);
@@ -669,6 +719,7 @@ export default function GeneratePage() {
         console.log("[Generation] Starting background tasks (Features, MLS, Video)");
         
         // Kick off background generation (fire and forget)
+        // Pass initialListingId directly to avoid state race conditions
         runBackgroundGeneration(
           propertyDetails,
           currentPhotoUrls,
@@ -676,7 +727,8 @@ export default function GeneratePage() {
           descState,
           mlsState,
           video,
-          user
+          user,
+          initialListingId  // Pass listing ID directly
         );
       }
     } catch (error) {
@@ -704,13 +756,15 @@ export default function GeneratePage() {
     descState,
     mlsState,
     video,
-    user
+    user,
+    existingListingId  // Listing ID passed from main generation
   ) => {
     try {
       // Features uses the SAME selected photos as Public Remarks (quality over quantity)
       // MLS uses ALL photos for comprehensive analysis
       console.log(`[Background] Features will use ${propertyDetails.photos.length} selected photos`);
       console.log(`[Background] MLS will use ${currentPhotoUrls.length} photos (all uploaded)`);
+      console.log(`[Background] Using listing ID: ${existingListingId || 'will create if needed'}`);
       
       // SEQUENTIAL ORDERING: Features → Video → MLS
       
@@ -746,11 +800,11 @@ export default function GeneratePage() {
       if (featuresResult && currentPhotoUrls.length > 0) {
         console.log("[Background] Starting auto-video generation");
 
-        // CRITICAL FIX: Check if listing already exists (auto-save may have created it)
-        let listingId = descState.currentListingIdDesc;
+        // CRITICAL FIX: Use the listing ID passed from main generation (prevents duplicates)
+        let listingId = existingListingId || descState.currentListingIdDesc;
         
         if (!listingId && user) {
-          console.log("[Background] Creating listing for video storage");
+          console.log("[Background] No listing ID available - creating one (this should rarely happen)");
           try {
             const totalCost =
               (descState.generationState.publicRemarks.data?.usage?.cost_usd || 0) +

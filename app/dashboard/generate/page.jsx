@@ -165,8 +165,10 @@ export default function GeneratePage() {
 
   // Auto-save descriptions listing when generation completes
   useEffect(() => {
-    if (descState.currentListingIdDesc) {
-      console.log("[Auto-save Desc] Skipping - already have listing ID:", descState.currentListingIdDesc);
+    // CRITICAL FIX: Always UPDATE the existing listing, never create new ones
+    // The listing is created upfront in handleGenerateAllDesc
+    if (!descState.currentListingIdDesc) {
+      console.log("[Auto-save Desc] No listing ID yet - will be created by generation");
       return;
     }
 
@@ -188,26 +190,7 @@ export default function GeneratePage() {
             (descState.generationState.publicRemarks.data?.usage?.generation_time_ms || 0) +
             (descState.generationState.features.data?.usage?.generation_time_ms || 0);
 
-          const propertyAddress = descState.addressDesc
-            ? `${descState.addressDesc.street}, ${descState.addressDesc.city || ""}, ${descState.addressDesc.state || ""} ${descState.addressDesc.zip_code}`.trim()
-            : "";
-
-          const listingData = {
-            user_id: user.id,
-            listing_type: "descriptions",
-            property_address: propertyAddress,
-            address_json: {
-              street: descState.addressDesc.street,
-              city: descState.addressDesc.city || "",
-              state: descState.addressDesc.state || "",
-              zip_code: descState.addressDesc.zip_code,
-              apn: descState.addressDesc.apn || null,
-              yearBuilt: descState.addressDesc.yearBuilt || null,
-              lotSize: descState.addressDesc.lotSize || null,
-              county: descState.addressDesc.county || null,
-              attempt_id: currentAttemptId,
-            },
-            property_type: "single_family",
+          const updateData = {
             bedrooms: mlsState.mlsData?.mls_fields?.bedrooms || null,
             bathrooms: mlsState.mlsData?.mls_fields?.bathrooms || null,
             public_remarks: descState.generationState.publicRemarks.data?.text || null,
@@ -220,12 +203,13 @@ export default function GeneratePage() {
             generation_time: totalTime,
           };
 
-          console.log("[Auto-save Desc] Saving with photo URLs:", descState.photoUrlsDesc);
-          const result = await saveListing(listingData);
+          console.log("[Auto-save Desc] UPDATING existing listing:", descState.currentListingIdDesc);
+          const result = await updateListing(descState.currentListingIdDesc, updateData);
 
           if (result.success) {
-            descState.setCurrentListingIdDesc(result.id);
-            toast.success("Listing saved automatically", { duration: 3000, icon: "✓" });
+            toast.success("Listing updated automatically", { duration: 3000, icon: "✓" });
+          } else {
+            console.error("[Auto-save Desc] Update failed:", result.error);
           }
         } catch (error) {
           console.error("Auto-save error:", error);
@@ -258,8 +242,8 @@ export default function GeneratePage() {
       return;
     }
 
-    // If we have a descriptions listing ID, UPDATE it with MLS data
-    // Otherwise, create a new MLS-only listing
+    // CRITICAL FIX: ONLY update existing listing, never create
+    // The listing is created upfront in handleGenerateAllDesc
     if (descState.currentListingIdDesc) {
       console.log("[Auto-save MLS] Updating descriptions listing with MLS data:", descState.currentListingIdDesc);
       const updateMLS = async () => {
@@ -280,59 +264,9 @@ export default function GeneratePage() {
       };
       updateMLS();
     } else {
-      // Create standalone MLS listing (for MLS-only generation)
-      const hasValidPhotoUrls = mlsState.photoUrlsMLS.length > 0 &&
-        mlsState.photoUrlsMLS.every(url => url.startsWith('http') && !url.startsWith('blob:'));
-
-      if (user && mlsState.addressMLS && hasValidPhotoUrls) {
-        const autoSaveMLS = async () => {
-          try {
-            const propertyAddress = mlsState.addressMLS
-              ? `${mlsState.addressMLS.street}, ${mlsState.addressMLS.city || ""}, ${mlsState.addressMLS.state || ""} ${mlsState.addressMLS.zip_code}`.trim()
-              : "";
-
-            const listingData = {
-              user_id: user.id,
-              listing_type: "mls_data",
-              property_address: propertyAddress,
-              address_json: {
-                street: mlsState.addressMLS.street,
-                city: mlsState.addressMLS.city || "",
-                state: mlsState.addressMLS.state || "",
-                zip_code: mlsState.addressMLS.zip_code,
-                apn: mlsState.addressMLS.apn || null,
-                yearBuilt: mlsState.addressMLS.yearBuilt || null,
-                lotSize: mlsState.addressMLS.lotSize || null,
-                county: mlsState.addressMLS.county || null,
-                attempt_id: currentAttemptId,
-              },
-              property_type: "single_family",
-              bedrooms: mlsState.mlsData.mls_fields?.bedrooms || null,
-              bathrooms: mlsState.mlsData.mls_fields?.bathrooms || null,
-              public_remarks: null,
-              features: null,
-              mls_data: mlsState.mlsData,
-              photo_urls: mlsState.photoUrlsMLS,
-              ai_cost: 0,
-              generation_time: mlsState.mlsData.processing_time_ms || 0,
-            };
-
-            console.log("[Auto-save MLS] Creating standalone MLS listing");
-            const result = await saveListing(listingData);
-
-            if (result.success) {
-              mlsState.setCurrentListingIdMLS(result.id);
-              toast.success("MLS data saved automatically", { duration: 3000, icon: "✓" });
-            }
-          } catch (error) {
-            console.error("Auto-save MLS error:", error);
-          }
-        };
-
-        autoSaveMLS();
-      }
+      console.log("[Auto-save MLS] No descriptions listing ID yet - MLS will be added when listing is created");
     }
-  }, [mlsState.mlsData, mlsState.photoUrlsMLS, mlsState.currentListingIdMLS, user, mlsState.addressMLS, mlsState, descState.currentListingIdDesc, currentAttemptId]);
+  }, [mlsState.mlsData, mlsState.currentListingIdMLS, descState.currentListingIdDesc, mlsState, user, currentAttemptId]);
 
   // =========================================================================
   // HELPER FUNCTIONS

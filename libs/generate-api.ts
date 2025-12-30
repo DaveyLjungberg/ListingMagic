@@ -287,28 +287,36 @@ async function processPhotosToImageInputs(
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
     try {
-      let base64: string;
+      // CRITICAL FIX: If we have URLs (photos already uploaded), send URLs directly
+      // This avoids huge base64 payloads that cause 413 errors
+      const url = selectedUrls?.[i] || getPhotoUrl(photo);
+      if (url && url.startsWith('http')) {
+        // Use URL directly - let backend fetch and process
+        imageInputs.push({
+          url,
+          filename: photo.name,
+        });
+        
+        // Call progress callback
+        if (onProgress) {
+          onProgress(i + 1, totalPhotos);
+        }
+        continue;
+      }
 
-      // Check if we have a File object (fresh upload)
+      // Fallback: Only convert to base64 if we have File objects (fresh uploads without URLs)
+      let base64: string;
       if (photo.file && photo.file instanceof File) {
         base64 = await compressImage(photo.file);
+        imageInputs.push({
+          base64,
+          filename: photo.name,
+          content_type: IMAGE_CONFIG.outputType,
+        });
+      } else {
+        console.error(`Photo ${photo.name} has no valid file or URL`);
+        continue;
       }
-      // Otherwise try to use the URL (from selectedUrls or photo object)
-      else {
-        const url = selectedUrls?.[i] || getPhotoUrl(photo);
-        if (url && url.startsWith('http')) {
-          base64 = await compressImageFromUrl(url);
-        } else {
-          console.error(`Photo ${photo.name} has no valid file or URL`);
-          continue;
-        }
-      }
-
-      imageInputs.push({
-        base64,
-        filename: photo.name,
-        content_type: IMAGE_CONFIG.outputType,
-      });
       
       // Call progress callback after each photo is processed
       if (onProgress) {
@@ -319,11 +327,18 @@ async function processPhotosToImageInputs(
     }
   }
 
-  logger.debug(
-    `Processed ${imageInputs.length} images, total payload: ${(
-      imageInputs.reduce((sum, img) => sum + (img.base64?.length || 0), 0) * 0.75 / 1024 / 1024
-    ).toFixed(2)}MB`
-  );
+  const hasBase64 = imageInputs.some(img => img.base64);
+  if (hasBase64) {
+    logger.debug(
+      `Processed ${imageInputs.length} images (base64), total payload: ${(
+        imageInputs.reduce((sum, img) => sum + (img.base64?.length || 0), 0) * 0.75 / 1024 / 1024
+      ).toFixed(2)}MB`
+    );
+  } else {
+    logger.debug(
+      `Processed ${imageInputs.length} images (URLs) - lightweight payload`
+    );
+  }
 
   return imageInputs;
 }

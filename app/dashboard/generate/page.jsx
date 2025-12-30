@@ -746,7 +746,7 @@ export default function GeneratePage() {
       if (featuresResult && currentPhotoUrls.length > 0) {
         console.log("[Background] Starting auto-video generation");
 
-        // Ensure we have a listing ID for video storage
+        // CRITICAL FIX: Check if listing already exists (auto-save may have created it)
         let listingId = descState.currentListingIdDesc;
         
         if (!listingId && user) {
@@ -799,6 +799,8 @@ export default function GeneratePage() {
           } catch (error) {
             console.error("[Background] Failed to create listing for video:", error);
           }
+        } else if (listingId) {
+          console.log("[Background] Using existing listing ID for video:", listingId);
         }
 
         // Generate video if we have a listing ID

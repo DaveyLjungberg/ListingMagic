@@ -685,7 +685,10 @@ export default function GeneratePage() {
       // Features and MLS need ALL photos for accurate analysis
       const fullPropertyDetails = {
         address: propertyDetails.address,
-        photos: currentPhotoUrls.map(url => ({ url })), // All photos as URL objects
+        photos: currentPhotoUrls.map((url, index) => ({
+          url,
+          filename: `photo_${index + 1}.jpg`, // Backend needs filename
+        })),
         property_type: propertyDetails.property_type,
       };
       

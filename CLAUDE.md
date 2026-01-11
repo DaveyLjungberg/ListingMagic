@@ -103,8 +103,13 @@ listing-magic/
 │   │   └── callback/page.jsx       # OAuth callback handler
 │   ├── dashboard/
 │   │   ├── generate/               # Main generation page
-│   │   │   ├── components/         # DescriptionsTab, MLSDataTab, ResultsTabs
-│   │   │   ├── hooks/              # useDescriptionsState, useMLSState, useVideoGeneration
+│   │   │   ├── components/         # DescriptionsTab, MLSDataTab, ResultsTabs, GenerationProgress
+│   │   │   ├── hooks/              # Custom React hooks (see below)
+│   │   │   │   ├── useDescriptionsState.js   # Public remarks + features state
+│   │   │   │   ├── useMLSState.js            # MLS extraction state
+│   │   │   │   ├── useVideoGeneration.js     # Video generation state
+│   │   │   │   ├── useWakeLockGeneration.js  # Wake lock + progress + notifications
+│   │   │   │   └── useRefinement.js          # Iterative content refinement
 │   │   │   └── page.jsx            # Main orchestrator
 │   │   └── pricing/                # Credit purchase page
 │   │       └── page.jsx            # Pricing cards + Stripe checkout
@@ -116,10 +121,17 @@ listing-magic/
 │       ├── NameListingModal.jsx    # Credit gatekeeper modal
 │       └── AddressInput.jsx        # Address entry component
 ├── libs/
-│   ├── generate-api.ts             # Backend API client
+│   ├── generate-api.ts             # Backend API client (all generation functions)
 │   ├── credits.ts                  # Credit system client (getCreditBalance)
+│   ├── listings.ts                 # Listings CRUD client
+│   ├── photo-selection.ts          # Photo categorization + intelligent sampling
+│   ├── smart-photo-selector.ts     # AI-based photo quality evaluation
+│   ├── supabase-storage-upload.ts  # Batch upload to Supabase Storage
+│   ├── logger.ts                   # Environment-aware logging utility
 │   ├── supabase.js                 # Supabase client
 │   └── utils.js                    # Utility functions (getDomainFromEmail, etc.)
+├── types/
+│   └── api.ts                      # TypeScript interfaces matching backend models
 ├── python-backend/                 # FastAPI Backend
 │   ├── endpoints/                  # API endpoints (mls_data, video_generation, refine_content)
 │   ├── services/                   # AI provider integrations
@@ -170,11 +182,47 @@ Credits control access to listing generation. The system supports both individua
 ### Database Schema
 ```sql
 -- Table: credit_balances
--- owner_identifier: "john@example.com" (personal) OR "example.com" (domain)
--- credits: integer balance
+-- Stores credit balances for personal and domain (team) accounts
+CREATE TABLE credit_balances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_identifier TEXT UNIQUE NOT NULL,  -- "john@example.com" (personal) OR "example.com" (domain)
+  credits INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Table: credit_transactions
+-- Tracks all credit debits/refunds with idempotent keys
+CREATE TABLE credit_transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attempt_id UUID NOT NULL,                -- Links to generation attempt
+  user_email TEXT NOT NULL,
+  transaction_type TEXT NOT NULL,          -- 'debit' or 'refund'
+  amount INTEGER DEFAULT 1,
+  source TEXT,                             -- 'domain' or 'personal'
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(attempt_id, transaction_type)     -- Prevents duplicate refunds
+);
+
+-- Table: listings
+-- Stores generated listing content
+CREATE TABLE listings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
+  name TEXT,
+  address_json JSONB,          -- street, city, state, zip, taxData, attempt_id
+  photo_urls TEXT[],
+  public_remarks TEXT,
+  features JSONB,
+  mls_data JSONB,
+  video_url TEXT,
+  ai_cost_details JSONB,       -- Cost breakdown by task
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 ```
 
-### API Endpoints
+### API Endpoints (Credits)
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/credits` | GET | Get user's credit balance |
@@ -182,6 +230,27 @@ Credits control access to listing generation. The system supports both individua
 | `/api/credits/add` | POST | Add credits (internal/admin) |
 | `/api/stripe/checkout` | POST | Create Stripe checkout for credit purchase |
 | `/api/stripe/webhook` | POST | Stripe webhook for credit fulfillment |
+
+### API Endpoints (Generation - Frontend Proxies)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/generate-public-remarks` | POST | Proxy to backend for public remarks |
+| `/api/generate-features` | POST | Proxy to backend for features list |
+| `/api/extract-mls-data` | POST | Unified MLS extraction (base64 or URLs) |
+| `/api/analyze-photos` | POST | Batch photo analysis via GPT-4 Vision (60s timeout) |
+| `/api/listings` | GET/POST | CRUD operations for user listings |
+| `/api/health` | GET/HEAD | Health check (used as wake lock heartbeat fallback) |
+
+### API Endpoints (Legacy/Internal)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/generate-mls-data` | POST | Legacy - forwards to `/api/extract-mls-data` |
+| `/api/generate-mls-data-urls` | POST | Legacy - forwards to `/api/extract-mls-data` |
+| `/api/webhook/stripe` | POST | Legacy subscription webhook (separate from credits) |
+| `/api/stripe/create-checkout` | POST | Legacy checkout (uses MongoDB) |
+| `/api/stripe/create-portal` | POST | Stripe customer portal creation |
+| `/api/lead` | POST | Lead capture from landing page |
+| `/api/auth/callback` | GET | OAuth2 callback handler |
 
 ### Frontend Client (`libs/credits.ts`)
 ```typescript
@@ -286,11 +355,10 @@ QuickList tracks user activity for analytics and business insights.
 - Non-blocking: errors don't prevent login
 
 ### User Source Tracking
-**Signup source** is captured during account creation:
-- "How did you hear about us?" dropdown in signup form
-- Options: YouTube, TikTok, Facebook, Instagram, Google Search, Referral, Other
-- Stored via `update_user_source` RPC after successful signup
-- Used for marketing attribution and analytics
+**Signup source tracking removed** (Jan 11, 2026):
+- Previously asked "How did you hear about us?" during signup
+- Removed to simplify the signup flow
+- The `update_user_source` RPC and `source` column in profiles still exist but are unused
 
 ### Remember Me Feature
 **Session persistence** controlled by user preference:
@@ -476,6 +544,65 @@ content = response.output_text            # Extract result
 
 ---
 
+## 📸 Photo Categorization Pipeline
+
+Before generating the Features sheet, photos are categorized by room type for intelligent selection.
+
+### Categories
+| Category | Examples |
+|----------|----------|
+| EXTERIOR | Front yard, backyard, pool, garage exterior |
+| LIVING | Living room, family room, great room |
+| KITCHEN | Kitchen, breakfast nook, pantry |
+| BATHROOM | Full bath, half bath, primary bath |
+| BEDROOM | Primary bedroom, guest bedroom |
+| UTILITY | Laundry, garage interior, storage |
+
+### Flow
+1. **AI Categorization** (25s timeout): Backend `/api/categorize-photos` assigns room type + priority score to each photo
+2. **Fallback Sampling**: If AI times out/errors/returns unusable buckets, deterministic fallback kicks in:
+   - `spreadSample()` selects photos evenly distributed across the album
+   - `pickFromThird()` samples from beginning/middle/end of photo list
+   - Category quotas ensure diverse representation
+3. **Selection**: `libs/photo-selection.ts` picks photos for Features sheet generation
+4. **Guardrails**: Throws error if selection produces empty list when photos exist
+
+### Why This Matters
+- Features Sheet needs diverse photo coverage to extract all property features
+- Prevents "Not provided" sections due to photos missing certain rooms
+- Fallback ensures the pipeline never fails due to categorization issues
+
+---
+
+## 🔧 Python Backend Endpoints
+
+The FastAPI backend exposes these endpoints (base URL: `https://listingmagic-production.up.railway.app`):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/generate-public-remarks` | POST | Generate MLS public remarks from photos |
+| `/api/generate-features` | POST | Generate features list from photos |
+| `/api/generate-mls-data` | POST | Extract MLS data from base64 images |
+| `/api/generate-mls-data-urls` | POST | Extract MLS data from photo URLs |
+| `/api/categorize-photos` | POST | Categorize photos by room type (EXTERIOR/LIVING/KITCHEN/BATHROOM/BEDROOM/UTILITY) |
+| `/api/refine-content` | POST | Iterative content refinement with compliance checking |
+| `/api/check-compliance` | POST | Fair Housing compliance validation |
+| `/api/generate-video` | POST | Generate silent video slideshow from photos |
+| `/api/costs/summary` | GET | Daily cost breakdown by provider/task |
+| `/api/models` | GET | Model configuration info |
+
+### Backend Endpoint Files
+```
+python-backend/endpoints/
+├── mls_data.py           # MLS extraction endpoints
+├── photo_categorization.py   # Photo categorization for features
+├── refine_content.py     # Iterative content refinement
+└── video_generation.py   # FFmpeg-based video creation
+```
+
+---
+
 ## 🚀 Development Workflow
 
 ### Local Development
@@ -505,6 +632,42 @@ git push origin main
 
 ---
 
+## 🔐 Environment Variables
+
+### Frontend (.env.local)
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side) |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
+| `STRIPE_SECRET_KEY` | Stripe secret key |
+| `STRIPE_CREDITS_WEBHOOK_SECRET` | Webhook secret for credits webhook |
+| `NEXT_PUBLIC_STRIPE_PRICE_STARTER` | Stripe Price ID for 1 credit ($20) |
+| `NEXT_PUBLIC_STRIPE_PRICE_PRO` | Stripe Price ID for 10 credits ($150) |
+| `NEXT_PUBLIC_STRIPE_PRICE_AGENCY` | Stripe Price ID for 50 credits ($400) |
+| `NEXT_PUBLIC_SITE_URL` | Site URL for Stripe callbacks |
+| `PYTHON_BACKEND_URL` | Backend URL (default: `http://localhost:8000`) |
+| `ATTOM_API_KEY` | ATTOM API key for tax records |
+| `NEXT_PUBLIC_DEBUG_AI_METADATA` | Enable AI provider/model display (dev only) |
+
+### Backend (python-backend/.env)
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key (gpt-5.2) |
+| `GOOGLE_API_KEY` | Google API key (Gemini fallback) |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `ENVIRONMENT` | Deployment environment (development/production) |
+| `DEBUG` | Enable debug logging |
+| `TEMP_STORAGE_PATH` | Temporary file storage (default: `./tmp`) |
+| `MAX_UPLOAD_SIZE_MB` | Max upload size (default: 50MB) |
+| `ENABLE_COST_TRACKING` | Enable cost tracking |
+| `COST_ALERT_THRESHOLD` | Cost alert threshold (default: $10.00) |
+| `ALLOWED_ORIGINS` | CORS whitelist (supports Vercel preview URLs) |
+
+---
+
 ## 📋 Before Starting Any Task
 
 1. **Check `.agent-workspace/context/current-sprint.md`** - What am I working on?
@@ -519,6 +682,15 @@ git push origin main
 
 ### Active Issues
 None currently active.
+
+### Recently Fixed (Jan 11, 2026)
+- ✅ **"Listing updated" toast spam** → Auto-save effects had entire state objects in dependency arrays causing infinite re-runs (Jan 11, 2026):
+  - Removed `descState` and `mlsState` objects from dependency arrays (only specific properties needed)
+  - Added `autoSavedListingsRef` (Set) to track which listings have been saved
+  - Each save operation uses a unique key (`listingId-desc`, `listingId-mls`) to prevent duplicates
+  - If save fails, key is removed from Set to allow retry
+  - Changed toast message from "Listing updated automatically" to "Listing saved"
+  - Affects: `app/dashboard/generate/page.jsx`
 
 ### Solved Issues (Don't Re-Fix)
 - ✅ **Team credit support** → Implemented full team/domain credit purchasing (Dec 29, 2025):
@@ -681,6 +853,10 @@ None currently active.
 | Unified AI service | `python-backend/services/ai_generation_service.py` |
 | Fair Housing rules | `python-backend/compliance/fair_housing.py` |
 | Agent memory | `.agent-workspace/` |
+| TypeScript API types | `types/api.ts` |
+| Luxury theme guide | `LUXURY_THEME_GUIDE.md` |
+| Photo selection logic | `libs/photo-selection.ts` |
+| Listings CRUD | `libs/listings.ts` |
 
 **Dashboard URLs**:
 - **Supabase Dashboard**: https://supabase.com/dashboard/project/vbfwcemtkgymygccgffl
@@ -749,3 +925,11 @@ For detailed context, check the `.agent-workspace/` directory:
 - Unique constraint on `(attempt_id, transaction_type)` prevents duplicate refunds
 - Frontend generates `attempt_id` in `NameListingModal` before credit consumption
 - Passes through generation flow for potential refund on failure
+
+**Wake Lock & Background Tab Handling**:
+The generation process can take 60-90 seconds. To prevent interruption:
+- Browser Wake Lock API prevents screen sleep when available
+- Fallback: Periodic HTTP heartbeat to `/api/health` (5-second intervals)
+- Notification system alerts user when generation completes while tab is backgrounded
+- Estimated time remaining displayed in `GenerationProgress` component (45s avg per step)
+- Single-shot cleanup pattern prevents duplicate cleanup on success/failure paths

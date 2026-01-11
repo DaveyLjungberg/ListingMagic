@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import { supabase } from "@/libs/supabase";
 import OnboardingModal from "@/components/OnboardingModal";
@@ -159,6 +159,9 @@ export default function GeneratePage() {
   // Generation attempt tracking (for idempotent refunds)
   const [currentAttemptId, setCurrentAttemptId] = useState(null);
 
+  // Track which listings have been auto-saved to prevent duplicate saves
+  const autoSavedListingsRef = useRef(new Set());
+
   // =========================================================================
   // AUTO-SAVE EFFECTS
   // =========================================================================
@@ -179,7 +182,18 @@ export default function GeneratePage() {
     const hasValidPhotoUrls = descState.photoUrlsDesc.length > 0 &&
       descState.photoUrlsDesc.every(url => url.startsWith('http') && !url.startsWith('blob:'));
 
+    // Create a unique key for this save operation
+    const saveKey = `${descState.currentListingIdDesc}-desc`;
+
+    // Skip if we've already auto-saved this listing
+    if (autoSavedListingsRef.current.has(saveKey)) {
+      return;
+    }
+
     if (allGenerated && user && descState.addressDesc && hasValidPhotoUrls) {
+      // Mark as saved immediately to prevent duplicate calls
+      autoSavedListingsRef.current.add(saveKey);
+
       const autoSaveDesc = async () => {
         try {
           const totalCost =
@@ -207,12 +221,16 @@ export default function GeneratePage() {
           const result = await updateListing(descState.currentListingIdDesc, updateData);
 
           if (result.success) {
-            toast.success("Listing updated automatically", { duration: 3000, icon: "✓" });
+            toast.success("Listing saved", { duration: 2000, icon: "✓" });
           } else {
             console.error("[Auto-save Desc] Update failed:", result.error);
+            // Remove from set so it can retry
+            autoSavedListingsRef.current.delete(saveKey);
           }
         } catch (error) {
           console.error("Auto-save error:", error);
+          // Remove from set so it can retry
+          autoSavedListingsRef.current.delete(saveKey);
         }
       };
 
@@ -225,10 +243,7 @@ export default function GeneratePage() {
     descState.currentListingIdDesc,
     user,
     descState.addressDesc,
-    descState,
     mlsState.mlsData,
-    mlsState,
-    currentAttemptId,
   ]);
 
   // Auto-save or update MLS data
@@ -242,9 +257,20 @@ export default function GeneratePage() {
       return;
     }
 
+    // Create a unique key for this MLS save operation
+    const mlsSaveKey = `${descState.currentListingIdDesc}-mls`;
+
+    // Skip if we've already auto-saved MLS for this listing
+    if (autoSavedListingsRef.current.has(mlsSaveKey)) {
+      return;
+    }
+
     // CRITICAL FIX: ONLY update existing listing, never create
     // The listing is created upfront in handleGenerateAllDesc
     if (descState.currentListingIdDesc) {
+      // Mark as saved immediately to prevent duplicate calls
+      autoSavedListingsRef.current.add(mlsSaveKey);
+
       console.log("[Auto-save MLS] Updating descriptions listing with MLS data:", descState.currentListingIdDesc);
       const updateMLS = async () => {
         try {
@@ -257,16 +283,21 @@ export default function GeneratePage() {
           if (result.success) {
             mlsState.setCurrentListingIdMLS(descState.currentListingIdDesc);
             toast.success("MLS data saved", { duration: 2000, icon: "✓" });
+          } else {
+            // Remove from set so it can retry
+            autoSavedListingsRef.current.delete(mlsSaveKey);
           }
         } catch (error) {
           console.error("Update MLS error:", error);
+          // Remove from set so it can retry
+          autoSavedListingsRef.current.delete(mlsSaveKey);
         }
       };
       updateMLS();
     } else {
       console.log("[Auto-save MLS] No descriptions listing ID yet - MLS will be added when listing is created");
     }
-  }, [mlsState.mlsData, mlsState.currentListingIdMLS, descState.currentListingIdDesc, mlsState, user, currentAttemptId]);
+  }, [mlsState.mlsData, mlsState.currentListingIdMLS, descState.currentListingIdDesc]);
 
   // =========================================================================
   // HELPER FUNCTIONS

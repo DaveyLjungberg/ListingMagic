@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import ListingLoader from "@/components/listing-magic/ListingLoader";
+import ContextSwitcher from "@/components/listing-magic/ContextSwitcher";
+import AddBuyerModal from "@/components/listing-magic/AddBuyerModal";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NarrativeLoader from "@/components/NarrativeLoader";
 import ResultsTabs from "@/components/ResultsTabs";
@@ -97,9 +99,15 @@ export default function DescriptionsTab({
 }) {
   // Results tab state
   const [resultsTab, setResultsTab] = useState("Public Remarks");
-  
+
   // Name listing modal state
   const [showNameModal, setShowNameModal] = useState(false);
+
+  // Context/Buyer state (local only, session-based)
+  const [currentContext, setCurrentContext] = useState("Generic");
+  const [buyers, setBuyers] = useState([]); // [{ id, name, documents: [] }]
+  const [genericDocuments, setGenericDocuments] = useState([]); // Property-level docs
+  const [showAddBuyerModal, setShowAddBuyerModal] = useState(false);
 
   // Auto-show modal when photos uploaded without address
   useEffect(() => {
@@ -334,6 +342,16 @@ export default function DescriptionsTab({
 
       {/* Right Column - Results */}
       <main className="lg:col-span-8 space-y-4">
+        {/* Context Switcher - Above Results Tabs */}
+        <ContextSwitcher
+          currentContext={currentContext}
+          setCurrentContext={setCurrentContext}
+          buyers={buyers}
+          setBuyers={setBuyers}
+          genericDocuments={genericDocuments}
+          onAddBuyer={() => setShowAddBuyerModal(true)}
+        />
+
         <ResultsTabs
           activeTab={resultsTab}
           setActiveTab={setResultsTab}
@@ -349,6 +367,10 @@ export default function DescriptionsTab({
           onPreviewVideo={handlePreviewVideo}
           onDownloadVideo={(url) => handleDownloadVideo(url, currentListingIdDesc)}
           photoUrlsDesc={photoUrlsDesc}
+          // Buyer mode props
+          isBuyerMode={currentContext !== "Generic"}
+          buyerName={currentContext}
+          buyerDocCount={buyers.find((b) => b.name === currentContext)?.documents?.length || 0}
         />
       </main>
     </div>
@@ -367,6 +389,19 @@ export default function DescriptionsTab({
         setShowNameModal(false);
       }}
       user={user}
+    />
+
+    {/* Add Buyer Modal */}
+    <AddBuyerModal
+      isOpen={showAddBuyerModal}
+      onClose={() => setShowAddBuyerModal(false)}
+      onSave={(name) => {
+        setBuyers([
+          ...buyers,
+          { id: crypto.randomUUID(), name, documents: [] },
+        ]);
+        setShowAddBuyerModal(false);
+      }}
     />
     </>
   );

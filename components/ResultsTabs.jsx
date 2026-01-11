@@ -1,10 +1,12 @@
 "use client";
 
-import { ShieldCheck, Copy, Sparkles, Play, Download } from "lucide-react";
+import { useState } from "react";
+import { ShieldCheck, Copy, Sparkles, Play, Download, ArrowRight } from "lucide-react";
 
 /**
  * ResultsTabs - Tabbed interface for displaying generated content
  * Shows public remarks, walk-thru script, features, and video generation
+ * Supports buyer-specific mode with custom input
  */
 export default function ResultsTabs({
   activeTab,
@@ -23,8 +25,27 @@ export default function ResultsTabs({
   onPreviewVideo = () => {},
   onDownloadVideo = () => {},
   photoUrlsDesc = [],
+  // Buyer mode props
+  isBuyerMode = false,
+  buyerName = "",
+  buyerDocCount = 0,
 }) {
-  const tabs = ["Public Remarks", "Features Sheet", "Video Tour"];
+  // Buyer-specific input state
+  const [buyerQuery, setBuyerQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+
+  // Tabs change based on mode
+  const tabs = isBuyerMode
+    ? ["Buyer-specific"]
+    : ["Public Remarks", "Features Sheet", "Video Tour", "Neighborhood", "Summarize"];
+
+  // Handle buyer query submission
+  const handleBuyerSubmit = () => {
+    if (buyerQuery.trim()) {
+      setSubmittedQuery(buyerQuery);
+      // TODO: Future - send to backend with buyer context
+    }
+  };
 
   // Get active content based on selected tab
   const getActiveContent = () => {
@@ -33,6 +54,10 @@ export default function ResultsTabs({
         return results.publicRemarks;
       case "Features Sheet":
         return results.features;
+      case "Neighborhood":
+        return results.neighborhood || "";
+      case "Summarize":
+        return results.summarize || "";
       default:
         return null;
     }
@@ -41,6 +66,7 @@ export default function ResultsTabs({
   const activeContent = getActiveContent();
   const hasContent = activeContent && activeContent.trim().length > 0;
   const isVideoTab = activeTab === "Video Tour";
+  const isBuyerTab = activeTab === "Buyer-specific";
 
   return (
     <div className="bg-white rounded-2xl shadow-xl border border-slate-200">
@@ -65,8 +91,8 @@ export default function ResultsTabs({
 
       {/* Content Area */}
       <div className="px-5 py-4">
-        {/* Fair Housing Safe Badge - Hide on Video Tab */}
-        {!isVideoTab && (
+        {/* Fair Housing Safe Badge - Hide on Video Tab and Buyer Tab */}
+        {!isVideoTab && !isBuyerTab && (
           <div className="mb-4 flex items-center justify-between">
             <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-teal-50 text-teal-700 border border-teal-100 rounded-full text-xs font-medium">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -95,8 +121,56 @@ export default function ResultsTabs({
           </div>
         )}
 
-        {/* Video Tour Content */}
-        {isVideoTab ? (
+        {/* Buyer-specific Content */}
+        {isBuyerTab ? (
+          <div className="space-y-4">
+            {/* Buyer doc count */}
+            <p className="text-sm text-slate-500">
+              {buyerDocCount} documents related to {buyerName} uploaded
+            </p>
+
+            {/* Query Input */}
+            <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-4 py-3">
+              <input
+                type="text"
+                placeholder="What help would you like?"
+                className="flex-1 outline-none text-sm text-slate-700 placeholder:text-slate-400"
+                value={buyerQuery}
+                onChange={(e) => setBuyerQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleBuyerSubmit()}
+              />
+              <button
+                onClick={handleBuyerSubmit}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                disabled={!buyerQuery.trim()}
+              >
+                <ArrowRight className="w-5 h-5 text-slate-600" />
+              </button>
+            </div>
+
+            {/* Placeholder Response */}
+            {submittedQuery && (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <p className="text-sm text-slate-500 italic">
+                  AI response coming soon. Your query: &quot;{submittedQuery}&quot;
+                </p>
+              </div>
+            )}
+
+            {/* Copy button for response */}
+            {submittedQuery && (
+              <div className="flex justify-end">
+                <button
+                  onClick={() => onCopy(submittedQuery)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copy
+                </button>
+              </div>
+            )}
+          </div>
+        ) : isVideoTab ? (
           <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-4">
             {/* Generating State */}
             {isGeneratingVideo && !videoData && (

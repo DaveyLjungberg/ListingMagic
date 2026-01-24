@@ -99,12 +99,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Fetch documents for this listing (only if listingId provided)
+    const serviceClient = getServiceClient();
+    const client = serviceClient || supabase;
     let documentUrls: string[] = [];
 
     if (listingId) {
-      const serviceClient = getServiceClient();
-      const client = serviceClient || supabase;
-
       const { data: documents, error: docsError } = await client
         .from("documents")
         .select("file_url, file_name, file_type")

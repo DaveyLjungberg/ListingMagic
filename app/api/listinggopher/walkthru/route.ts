@@ -98,25 +98,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Fetch documents for this listing
-    const serviceClient = getServiceClient();
-    const client = serviceClient || supabase;
+    // 3. Fetch documents for this listing (only if listingId provided)
+    let documentUrls: string[] = [];
 
-    const { data: documents, error: docsError } = await client
-      .from("documents")
-      .select("file_url, file_name, file_type")
-      .eq("listing_id", listingId)
-      .eq("user_id", user.id);
+    if (listingId) {
+      const serviceClient = getServiceClient();
+      const client = serviceClient || supabase;
 
-    if (docsError) {
-      console.error("Error fetching documents:", docsError);
-      return NextResponse.json(
-        { success: false, error: "database_error", message: "Failed to fetch documents" },
-        { status: 500 }
-      );
+      const { data: documents, error: docsError } = await client
+        .from("documents")
+        .select("file_url, file_name, file_type")
+        .eq("listing_id", listingId)
+        .eq("user_id", user.id);
+
+      if (docsError) {
+        console.error("Error fetching documents:", docsError);
+        // Don't fail - just proceed without documents
+        console.warn("Proceeding without documents due to fetch error");
+      } else {
+        documentUrls = documents?.map((doc: { file_url: string }) => doc.file_url) || [];
+      }
     }
-
-    const documentUrls = documents?.map((doc: { file_url: string }) => doc.file_url) || [];
 
     // Note: We allow generation even without documents - user might just want to draft a walk-thru
 

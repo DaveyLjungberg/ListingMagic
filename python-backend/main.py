@@ -47,6 +47,7 @@ from endpoints.mls_data import router as mls_router
 from endpoints.video_generation import router as video_router
 from endpoints.refine_content import router as refine_router
 from endpoints.photo_categorization import router as photo_categorization_router
+from endpoints.listinggopher import router as listinggopher_router
 from compliance import check_fair_housing_compliance
 
 # Configure logging
@@ -137,6 +138,7 @@ app.include_router(mls_router)
 app.include_router(video_router)
 app.include_router(refine_router)
 app.include_router(photo_categorization_router)
+app.include_router(listinggopher_router)
 
 
 # =============================================================================

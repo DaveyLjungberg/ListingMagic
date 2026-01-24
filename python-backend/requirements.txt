@@ -18,6 +18,10 @@ ffmpeg-python>=0.2.0
 # Image Processing
 pillow>=10.0.0
 
+# Document Processing (ListingGopher)
+pypdf>=4.0.0            # PDF text extraction
+python-docx>=1.0.0      # DOCX text extraction
+
 # Configuration & Environment
 python-dotenv>=1.0.0
 

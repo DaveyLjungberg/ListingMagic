@@ -10,17 +10,21 @@ import NarrativeLoader from "@/components/NarrativeLoader";
 import NameListingModal from "@/components/listing-magic/NameListingModal";
 import { copyToClipboard } from "@/libs/generate-api";
 import toast from "react-hot-toast";
-import { FileText, ClipboardCheck, ListChecks, Database, Copy, Loader2, Sparkles } from "lucide-react";
+import { FileText, ClipboardCheck, ListChecks, Copy, Loader2, Sparkles, Video } from "lucide-react";
 
 // Example prompts for each tab
 const EXAMPLE_PROMPTS = {
   draft: [
     "Draft MLS public remarks",
-    "Draft a response to: Why is your property higher priced than the property on Oak Street?",
+    "Draft a response to the following question from a prospective buyer: \"Why is your property higher priced than the property on Oak Street?\"",
   ],
   review: [
-    "Review the Property Fact Sheet for missing information and inconsistencies",
+    "Review the Property Fact Sheet for missing information and for inconsistencies",
     "Review the CMA to find issues if there is any new information from the past week",
+  ],
+  walkthru: [
+    "Draft a walk-thru script for showing the property",
+    "Draft a video tour script highlighting key features",
   ],
   summary: [
     "Summarize the most important conclusions in the CMA",
@@ -28,12 +32,28 @@ const EXAMPLE_PROMPTS = {
   ],
 };
 
-// Tab configuration
+// Tab help text (shown above prompt area)
+const TAB_HELP_TEXT = {
+  draft: "Ask ListingGopher to help you draft some text",
+  review: "Ask ListingGopher to help you review documents for readiness",
+  walkthru: "Ask ListingGopher to help you draft a walk-thru script",
+  summary: "Ask ListingGopher to help you summarize key points",
+};
+
+// Follow-up placeholders per tab
+const FOLLOW_UP_PLACEHOLDERS = {
+  draft: "Do you have changes you want me to make?",
+  review: "Do you have any questions?",
+  walkthru: "Do you have changes you want me to make?",
+  summary: "Do you want me to say more?",
+};
+
+// Tab configuration (order matches demo slides)
 const TABS = [
   { id: 'draft', label: 'Draft some text', icon: FileText },
   { id: 'review', label: 'Review for readiness', icon: ClipboardCheck },
+  { id: 'walkthru', label: 'Draft a walk-thru', icon: Video },
   { id: 'summary', label: 'Summarize key points', icon: ListChecks },
-  { id: 'mls', label: 'MLS', icon: Database },
 ];
 
 /**
@@ -116,6 +136,7 @@ export default function DescriptionsTab({
   const [tabContent, setTabContent] = useState({
     draft: { prompt: '', response: '', followUp: '' },
     review: { prompt: '', response: '', followUp: '' },
+    walkthru: { prompt: '', response: '', followUp: '' },
     summary: { prompt: '', response: '', followUp: '' },
   });
 
@@ -123,6 +144,7 @@ export default function DescriptionsTab({
   const [tabLoading, setTabLoading] = useState({
     draft: false,
     review: false,
+    walkthru: false,
     summary: false,
   });
 
@@ -158,32 +180,96 @@ export default function DescriptionsTab({
     }));
   };
 
-  // Handle generate (placeholder - API calls not implemented yet)
+  // Map tab names to API endpoints
+  const TAB_ENDPOINTS = {
+    draft: 'draft-text',
+    review: 'review',
+    walkthru: 'walkthru',
+    summary: 'summarize',
+  };
+
+  // Handle generate - calls real API
   const handleGenerate = async (tab) => {
     if (!tabContent[tab].prompt.trim()) return;
 
     setTabLoading(prev => ({ ...prev, [tab]: true }));
 
-    // TODO: Implement actual API call
-    // For now, simulate a response after 1.5 seconds
-    setTimeout(() => {
-      updateTabContent(tab, 'response', `[Generated response for: "${tabContent[tab].prompt}"]\n\nThis is a placeholder response. API integration coming soon.`);
+    try {
+      const endpoint = TAB_ENDPOINTS[tab];
+      if (!endpoint) {
+        throw new Error('Invalid tab type');
+      }
+
+      const response = await fetch(`/api/listinggopher/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId: currentListingIdDesc,
+          userPrompt: tabContent[tab].prompt,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle specific error types
+        if (data.error === 'no_documents') {
+          throw new Error('Please upload documents first');
+        }
+        throw new Error(data.message || data.error || 'Generation failed');
+      }
+
+      updateTabContent(tab, 'response', data.generatedText);
+      toast.success('Content generated!');
+
+    } catch (error) {
+      console.error('Generation error:', error);
+      toast.error(error.message || 'Failed to generate content');
+    } finally {
       setTabLoading(prev => ({ ...prev, [tab]: false }));
-    }, 1500);
+    }
   };
 
-  // Handle follow-up refinement (placeholder)
+  // Handle follow-up refinement - calls API with combined prompt
   const handleFollowUp = async (tab) => {
     if (!tabContent[tab].followUp.trim()) return;
 
     setTabLoading(prev => ({ ...prev, [tab]: true }));
 
-    // TODO: Implement actual API call
-    setTimeout(() => {
-      updateTabContent(tab, 'response', `[Refined response based on: "${tabContent[tab].followUp}"]\n\n${tabContent[tab].response}\n\n[Additional refinements applied]`);
+    try {
+      const endpoint = TAB_ENDPOINTS[tab];
+      if (!endpoint) {
+        throw new Error('Invalid tab type');
+      }
+
+      // Combine original prompt with follow-up instruction
+      const combinedPrompt = `Original request: ${tabContent[tab].prompt}\n\nPrevious response:\n${tabContent[tab].response}\n\nRefinement request: ${tabContent[tab].followUp}`;
+
+      const response = await fetch(`/api/listinggopher/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId: currentListingIdDesc,
+          userPrompt: combinedPrompt,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Refinement failed');
+      }
+
+      updateTabContent(tab, 'response', data.generatedText);
       updateTabContent(tab, 'followUp', '');
+      toast.success('Content refined!');
+
+    } catch (error) {
+      console.error('Refinement error:', error);
+      toast.error(error.message || 'Failed to refine content');
+    } finally {
       setTabLoading(prev => ({ ...prev, [tab]: false }));
-    }, 1500);
+    }
   };
 
   // Handle document upload complete
@@ -195,14 +281,21 @@ export default function DescriptionsTab({
   // Disable inputs while generation is active (overlay or background)
   const isGeneratingAny = isGeneratingDesc || isGeneratingBackground;
 
-  // Render tab content for draft/review/summary tabs
+  // Render tab content for draft/review/walkthru/summary tabs
   const renderTabContent = (tab) => {
     const content = tabContent[tab];
     const isLoading = tabLoading[tab];
     const examples = EXAMPLE_PROMPTS[tab];
+    const helpText = TAB_HELP_TEXT[tab];
+    const followUpPlaceholder = FOLLOW_UP_PLACEHOLDERS[tab];
 
     return (
       <div className="space-y-4">
+        {/* Tab Help Text */}
+        {helpText && (
+          <p className="text-sm text-slate-500 italic">{helpText}</p>
+        )}
+
         {/* Example Prompts (shown when no response yet) */}
         {!content.response && (
           <div className="space-y-3">
@@ -284,7 +377,7 @@ export default function DescriptionsTab({
               <input
                 value={content.followUp}
                 onChange={(e) => updateTabContent(tab, 'followUp', e.target.value)}
-                placeholder="Do you have changes you want me to make?"
+                placeholder={followUpPlaceholder}
                 disabled={isLoading}
                 className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent placeholder:text-slate-400 disabled:opacity-50"
                 onKeyDown={(e) => e.key === 'Enter' && handleFollowUp(tab)}
@@ -297,30 +390,12 @@ export default function DescriptionsTab({
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  'Refine'
+                  'Update'
                 )}
               </button>
             </div>
           </div>
         )}
-      </div>
-    );
-  };
-
-  // Render MLS tab content (placeholder for existing MLS functionality)
-  const renderMLSContent = () => {
-    return (
-      <div className="space-y-4">
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center">
-          <Database className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-slate-700 mb-2">MLS Data Extraction</h3>
-          <p className="text-sm text-slate-500 mb-4">
-            Extract property data for MLS submission. Upload photos and documents first.
-          </p>
-          <p className="text-xs text-slate-400">
-            MLS extraction functionality will be integrated here.
-          </p>
-        </div>
       </div>
     );
   };
@@ -519,8 +594,8 @@ export default function DescriptionsTab({
             <div className="p-5">
               {activeTab === 'draft' && renderTabContent('draft')}
               {activeTab === 'review' && renderTabContent('review')}
+              {activeTab === 'walkthru' && renderTabContent('walkthru')}
               {activeTab === 'summary' && renderTabContent('summary')}
-              {activeTab === 'mls' && renderMLSContent()}
             </div>
           </div>
         </main>

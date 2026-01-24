@@ -1,9 +1,10 @@
 """
 ListingGopher Document-Based AI Generation Endpoints
 
-Three endpoints for document-based AI generation:
+Four endpoints for document-based AI generation:
 - /generate/draft-text - Draft MLS remarks, buyer responses, etc.
 - /generate/review - Review documents for readiness
+- /generate/walkthru - Draft walk-through scripts
 - /generate/summarize - Summarize key points from documents
 
 Uses unified AI generation service:
@@ -45,6 +46,12 @@ class ReviewRequest(BaseModel):
 
 class SummarizeRequest(BaseModel):
     """Request for document summarization."""
+    user_prompt: str = Field(..., min_length=1, description="User's instructions")
+    document_urls: List[str] = Field(default=[], description="URLs to uploaded documents")
+
+
+class WalkthruRequest(BaseModel):
+    """Request for walk-through script generation."""
     user_prompt: str = Field(..., min_length=1, description="User's instructions")
     document_urls: List[str] = Field(default=[], description="URLs to uploaded documents")
 
@@ -108,6 +115,24 @@ Format:
 - Keep summaries concise but complete
 
 Output only the summary - no preamble or meta-commentary."""
+
+
+WALKTHRU_SYSTEM = """You are a professional real estate video script writer. Create engaging walk-through scripts that guide viewers through the property.
+
+Guidelines:
+- Write in a conversational, engaging tone suitable for video narration
+- Describe each room/area as if walking through the home
+- Highlight key features, upgrades, and selling points
+- Include smooth transitions between spaces ("Moving into the kitchen..." or "As we head upstairs...")
+- Keep the pace natural and flowing
+- Use sensory language to help viewers imagine themselves in the space
+- Focus on what makes the property special
+- Avoid discriminatory language or Fair Housing violations
+- Use third-person perspective ("This residence features...") or neutral narration
+
+Format the script with clear scene/room breaks for easy recording.
+
+Output only the walk-through script - no explanations or meta-commentary."""
 
 
 # =============================================================================
@@ -413,6 +438,67 @@ async def generate_summarize(request: SummarizeRequest) -> GenerationResponse:
 
     except Exception as e:
         logger.error(f"Summarization failed: {e}", exc_info=True)
+        return GenerationResponse(
+            success=False,
+            error=str(e)
+        )
+
+
+@router.post("/walkthru", response_model=GenerationResponse)
+async def generate_walkthru(request: WalkthruRequest) -> GenerationResponse:
+    """
+    Generate walk-through script for property tours.
+
+    Uses unified AI generation service:
+    - Primary: OpenAI gpt-5.2
+    - Fallback: Gemini gemini-2.0-flash (infrastructure failures only)
+    """
+    start_time = time.time()
+
+    try:
+        # Process documents - separate text from images
+        document_text, image_urls = await process_documents(request.document_urls)
+
+        # Build user prompt with document content
+        user_prompt_parts = [request.user_prompt]
+
+        if document_text:
+            user_prompt_parts.append(f"\n\n=== PROPERTY DOCUMENTS ===\n{document_text}")
+
+        if not document_text and not image_urls:
+            # No documents provided - just use the prompt
+            logger.info("Walk-thru generation with prompt only (no documents)")
+
+        full_user_prompt = "\n".join(user_prompt_parts)
+
+        # Generate using unified service
+        result = await generate_content_with_fallback(
+            system_prompt=WALKTHRU_SYSTEM,
+            user_prompt=full_user_prompt,
+            photo_urls=image_urls,  # Images for vision analysis
+            task_type="public_remarks",  # Use public_remarks for creative writing
+            temperature=0.7,  # Higher for creative content
+            max_output_tokens=3000  # Walk-thru scripts can be longer
+        )
+
+        if not result.success:
+            return GenerationResponse(
+                success=False,
+                error=result.error or "AI generation failed"
+            )
+
+        processing_time = (time.time() - start_time) * 1000
+        logger.info(f"Walk-thru script generated in {processing_time:.0f}ms using {result.model_used}")
+
+        return GenerationResponse(
+            success=True,
+            generated_text=result.content.strip(),
+            ai_cost=0.0,  # Cost tracking handled separately
+            token_count=(result.input_tokens or 0) + (result.output_tokens or 0)
+        )
+
+    except Exception as e:
+        logger.error(f"Walk-thru generation failed: {e}", exc_info=True)
         return GenerationResponse(
             success=False,
             error=str(e)

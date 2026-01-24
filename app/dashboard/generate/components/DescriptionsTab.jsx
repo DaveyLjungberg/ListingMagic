@@ -1,21 +1,44 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PhotoUploader from "@/components/listing-magic/PhotoUploader";
+import DocumentUploader from "@/components/listing-magic/DocumentUploader";
 import AddressInput from "@/components/listing-magic/AddressInput";
 import ListingLoader from "@/components/listing-magic/ListingLoader";
-import ContextSwitcher from "@/components/listing-magic/ContextSwitcher";
-import AddBuyerModal from "@/components/listing-magic/AddBuyerModal";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NarrativeLoader from "@/components/NarrativeLoader";
-import ResultsTabs from "@/components/ResultsTabs";
 import NameListingModal from "@/components/listing-magic/NameListingModal";
 import { copyToClipboard } from "@/libs/generate-api";
 import toast from "react-hot-toast";
+import { FileText, ClipboardCheck, ListChecks, Database, Copy, Loader2, Sparkles } from "lucide-react";
+
+// Example prompts for each tab
+const EXAMPLE_PROMPTS = {
+  draft: [
+    "Draft MLS public remarks",
+    "Draft a response to: Why is your property higher priced than the property on Oak Street?",
+  ],
+  review: [
+    "Review the Property Fact Sheet for missing information and inconsistencies",
+    "Review the CMA to find issues if there is any new information from the past week",
+  ],
+  summary: [
+    "Summarize the most important conclusions in the CMA",
+    "Identify the most important findings in the Inspection Report",
+  ],
+};
+
+// Tab configuration
+const TABS = [
+  { id: 'draft', label: 'Draft some text', icon: FileText },
+  { id: 'review', label: 'Review for readiness', icon: ClipboardCheck },
+  { id: 'summary', label: 'Summarize key points', icon: ListChecks },
+  { id: 'mls', label: 'MLS', icon: Database },
+];
 
 /**
  * Property Descriptions Tab component.
- * Contains photo upload, address input, and generated content sections.
+ * Contains photo upload, document upload, address input, and new 4-tab structure.
  */
 export default function DescriptionsTab({
   // User
@@ -38,8 +61,6 @@ export default function DescriptionsTab({
   isGeneratingBackground,
   generationProgressDesc,
   generationState,
-  // expandedSections, // unused
-  // setExpandedSections, // unused
 
   // Listing state
   currentListingIdDesc,
@@ -62,9 +83,6 @@ export default function DescriptionsTab({
 
   // Generation handlers
   handleGenerateAllDesc,
-  // handleRegeneratePublicRemarks, // unused
-  // handleRegenerateWalkthruScript, // unused
-  // handleRegenerateFeatures, // unused
   handleLoadDescListing,
   handleClearDescData,
 
@@ -72,15 +90,6 @@ export default function DescriptionsTab({
   handleRefineRemarks,
   handleRefineScript,
   handleRefineFeatures,
-  // isRefiningRemarks, // unused
-  // isRefiningScript, // unused
-  // isRefiningFeatures, // unused
-  // remarksComplianceError, // unused
-  // scriptComplianceError, // unused
-  // featuresComplianceError, // unused
-  // setRemarksComplianceError, // unused
-  // setScriptComplianceError, // unused
-  // setFeaturesComplianceError, // unused
 
   // Video state and handlers (silent videos only)
   isGeneratingVideo,
@@ -93,21 +102,35 @@ export default function DescriptionsTab({
 
   // Helpers
   formatFeaturesText,
-  
+
   // Attempt tracking (for idempotent refunds)
   setCurrentAttemptId,
 }) {
-  // Results tab state
-  const [resultsTab, setResultsTab] = useState("Public Remarks");
+  // Document uploader ref
+  const documentUploaderRef = useRef(null);
+
+  // Active tab state
+  const [activeTab, setActiveTab] = useState('draft');
+
+  // Per-tab content state
+  const [tabContent, setTabContent] = useState({
+    draft: { prompt: '', response: '', followUp: '' },
+    review: { prompt: '', response: '', followUp: '' },
+    summary: { prompt: '', response: '', followUp: '' },
+  });
+
+  // Per-tab loading state
+  const [tabLoading, setTabLoading] = useState({
+    draft: false,
+    review: false,
+    summary: false,
+  });
+
+  // Documents state
+  const [uploadedDocuments, setUploadedDocuments] = useState([]);
 
   // Name listing modal state
   const [showNameModal, setShowNameModal] = useState(false);
-
-  // Context/Buyer state (local only, session-based)
-  const [currentContext, setCurrentContext] = useState("Generic");
-  const [buyers, setBuyers] = useState([]); // [{ id, name, documents: [] }]
-  const [genericDocuments, setGenericDocuments] = useState([]); // Property-level docs
-  const [showAddBuyerModal, setShowAddBuyerModal] = useState(false);
 
   // Auto-show modal when photos uploaded without address
   useEffect(() => {
@@ -127,78 +150,244 @@ export default function DescriptionsTab({
     return success;
   };
 
-  // Handle refine routing based on active tab
-  const handleRefine = (tabName) => {
-    switch (tabName) {
-      case "Public Remarks": {
-        // Prompt user for instruction or use default
-        const remarksInstruction = prompt("How would you like to refine the public remarks?");
-        if (remarksInstruction) handleRefineRemarks(remarksInstruction);
-        break;
-      }
-      case "Features Sheet": {
-        const featuresInstruction = prompt("How would you like to refine the features?");
-        if (featuresInstruction) handleRefineFeatures(featuresInstruction);
-        break;
-      }
-    }
+  // Update tab content helper
+  const updateTabContent = (tab, field, value) => {
+    setTabContent(prev => ({
+      ...prev,
+      [tab]: { ...prev[tab], [field]: value }
+    }));
   };
 
-  // Compute results object for ResultsTabs
-  const results = {
-    publicRemarks: generationState.publicRemarks.data?.text || "",
-    features: formatFeaturesText(generationState.features.data) || "",
+  // Handle generate (placeholder - API calls not implemented yet)
+  const handleGenerate = async (tab) => {
+    if (!tabContent[tab].prompt.trim()) return;
+
+    setTabLoading(prev => ({ ...prev, [tab]: true }));
+
+    // TODO: Implement actual API call
+    // For now, simulate a response after 1.5 seconds
+    setTimeout(() => {
+      updateTabContent(tab, 'response', `[Generated response for: "${tabContent[tab].prompt}"]\n\nThis is a placeholder response. API integration coming soon.`);
+      setTabLoading(prev => ({ ...prev, [tab]: false }));
+    }, 1500);
+  };
+
+  // Handle follow-up refinement (placeholder)
+  const handleFollowUp = async (tab) => {
+    if (!tabContent[tab].followUp.trim()) return;
+
+    setTabLoading(prev => ({ ...prev, [tab]: true }));
+
+    // TODO: Implement actual API call
+    setTimeout(() => {
+      updateTabContent(tab, 'response', `[Refined response based on: "${tabContent[tab].followUp}"]\n\n${tabContent[tab].response}\n\n[Additional refinements applied]`);
+      updateTabContent(tab, 'followUp', '');
+      setTabLoading(prev => ({ ...prev, [tab]: false }));
+    }, 1500);
+  };
+
+  // Handle document upload complete
+  const handleDocumentUploadComplete = (docs) => {
+    setUploadedDocuments(prev => [...prev, ...docs]);
+    toast.success(`${docs.length} document(s) uploaded`);
   };
 
   // Disable inputs while generation is active (overlay or background)
   const isGeneratingAny = isGeneratingDesc || isGeneratingBackground;
 
+  // Render tab content for draft/review/summary tabs
+  const renderTabContent = (tab) => {
+    const content = tabContent[tab];
+    const isLoading = tabLoading[tab];
+    const examples = EXAMPLE_PROMPTS[tab];
+
+    return (
+      <div className="space-y-4">
+        {/* Example Prompts (shown when no response yet) */}
+        {!content.response && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-400">Example prompts:</p>
+            <div className="flex flex-col gap-2">
+              {examples.map((prompt, i) => (
+                <button
+                  key={i}
+                  onClick={() => updateTabContent(tab, 'prompt', prompt)}
+                  className="text-left px-4 py-3 text-sm text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Prompt Textarea */}
+        <div>
+          <textarea
+            value={content.prompt}
+            onChange={(e) => updateTabContent(tab, 'prompt', e.target.value)}
+            placeholder="Enter your prompt..."
+            disabled={isLoading}
+            className="w-full min-h-[120px] p-4 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm text-slate-700 placeholder:text-slate-400 disabled:opacity-50"
+          />
+        </div>
+
+        {/* Generate Button */}
+        <div>
+          <button
+            onClick={() => handleGenerate(tab)}
+            disabled={!content.prompt.trim() || isLoading}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Generate
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Generated Response */}
+        {content.response && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            {/* Response Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+              <span className="text-sm font-medium text-slate-700">Generated Response</span>
+              <button
+                onClick={() => handleCopy(content.response)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Copy
+              </button>
+            </div>
+
+            {/* Response Content */}
+            <div className="p-4">
+              <div className="prose prose-slate prose-sm max-w-none whitespace-pre-wrap">
+                {content.response}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Follow-up Input (shown after generation) */}
+        {content.response && (
+          <div className="space-y-3 pt-2">
+            <div className="flex gap-3">
+              <input
+                value={content.followUp}
+                onChange={(e) => updateTabContent(tab, 'followUp', e.target.value)}
+                placeholder="Do you have changes you want me to make?"
+                disabled={isLoading}
+                className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent placeholder:text-slate-400 disabled:opacity-50"
+                onKeyDown={(e) => e.key === 'Enter' && handleFollowUp(tab)}
+              />
+              <button
+                onClick={() => handleFollowUp(tab)}
+                disabled={!content.followUp.trim() || isLoading}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Refine'
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render MLS tab content (placeholder for existing MLS functionality)
+  const renderMLSContent = () => {
+    return (
+      <div className="space-y-4">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center">
+          <Database className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-slate-700 mb-2">MLS Data Extraction</h3>
+          <p className="text-sm text-slate-500 mb-4">
+            Extract property data for MLS submission. Upload photos and documents first.
+          </p>
+          <p className="text-xs text-slate-400">
+            MLS extraction functionality will be integrated here.
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Narrative Loader Overlay */}
-      <NarrativeLoader 
+      <NarrativeLoader
         isGenerating={isGeneratingDesc}
         progress={generationProgressDesc}
       />
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Left Column - Inputs */}
-      <aside className="lg:col-span-4 space-y-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          {/* Listing Loader & Clear Button */}
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={handleClearDescData}
-              disabled={isGeneratingAny || !hasDescDataToClear}
-              className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
-              title="Clear all data and start fresh"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-              </svg>
-              Clear
-            </button>
-            <ListingLoader
-              listingType="descriptions"
-              userId={user?.id}
-              onSelectListing={handleLoadDescListing}
-              disabled={isGeneratingAny}
-            />
-          </div>
+        {/* Left Column - Inputs */}
+        <aside className="lg:col-span-4 space-y-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            {/* Listing Loader & Clear Button */}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={handleClearDescData}
+                disabled={isGeneratingAny || !hasDescDataToClear}
+                className="btn btn-ghost btn-sm gap-1 text-base-content/60 hover:text-error hover:bg-error/10 disabled:opacity-40"
+                title="Clear all data and start fresh"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+                Clear
+              </button>
+              <ListingLoader
+                listingType="descriptions"
+                userId={user?.id}
+                onSelectListing={handleLoadDescListing}
+                disabled={isGeneratingAny}
+              />
+            </div>
 
-          {/* Photo Uploader */}
-          <ErrorBoundary section="Photo Uploader">
-            <PhotoUploader
-              ref={photoUploaderDescRef}
-              photos={photosDesc}
-              onPhotosChange={handlePhotosChangeDesc}
-              disabled={isGeneratingAny}
-            />
-          </ErrorBoundary>
+            {/* Photo Uploader */}
+            <ErrorBoundary section="Photo Uploader">
+              <PhotoUploader
+                ref={photoUploaderDescRef}
+                photos={photosDesc}
+                onPhotosChange={handlePhotosChangeDesc}
+                disabled={isGeneratingAny}
+              />
+            </ErrorBoundary>
 
-          {/* Photo Compliance Scanner */}
-          {photosDesc.length > 0 && (
-            <div className="border-t border-slate-200 pt-4 space-y-3">
+            {/* Document Uploader */}
+            <div className="border-t border-slate-200 pt-4">
+              <label className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
+                <FileText className="w-4 h-4" />
+                Property Documents
+              </label>
+              <div className="mt-3">
+                <DocumentUploader
+                  ref={documentUploaderRef}
+                  listingId={currentListingIdDesc}
+                  userId={user?.id}
+                  onUploadComplete={handleDocumentUploadComplete}
+                  disabled={isGeneratingAny}
+                />
+              </div>
+            </div>
+
+            {/* Photo Compliance Scanner */}
+            {photosDesc.length > 0 && (
+              <div className="border-t border-slate-200 pt-4 space-y-3">
                 {/* Scan Button */}
                 {!complianceReportDesc && !scanningComplianceDesc && (
                   <button
@@ -285,124 +474,73 @@ export default function DescriptionsTab({
                     )}
                   </div>
                 )}
-            </div>
-          )}
-
-          {/* Address Input */}
-          <div className="border-t border-slate-200 pt-4">
-            <AddressInput
-              ref={addressInputDescRef}
-              value={addressDesc}
-              onAddressChange={handleAddressChangeDesc}
-              disabled={isGeneratingAny}
-              hideTaxFields={true}
-              autoFetchTaxRecords={true}
-            />
-          </div>
-
-          {/* Generate All Button */}
-          <div className="border-t border-slate-200 pt-4">
-            <button
-              onClick={handleGenerateAllDesc}
-              disabled={isGeneratingAny || !isFormReadyDesc}
-              className="btn btn-primary w-full gap-2"
-            >
-              {isGeneratingAny ? (
-                <>
-                  <span className="loading loading-spinner loading-sm"></span>
-                  <span className="flex flex-col items-start">
-                    <span className="text-sm">
-                      {generationProgressDesc.label || "Generating..."}
-                    </span>
-                    {generationProgressDesc.phase === "analyzingPhotos" && generationProgressDesc.total > 0 && (
-                      <span className="text-xs opacity-70">
-                        Photo {generationProgressDesc.current} of {generationProgressDesc.total}
-                      </span>
-                    )}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-                  </svg>
-                  Generate All Content
-                </>
-              )}
-            </button>
-
-            {!isFormReadyDesc && (
-              <p className="text-xs text-base-content/40 text-center mt-3">
-                Upload photos and enter address first
-              </p>
+              </div>
             )}
+
+            {/* Address Input */}
+            <div className="border-t border-slate-200 pt-4">
+              <AddressInput
+                ref={addressInputDescRef}
+                value={addressDesc}
+                onAddressChange={handleAddressChangeDesc}
+                disabled={isGeneratingAny}
+                hideTaxFields={true}
+                autoFetchTaxRecords={true}
+              />
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
 
-      {/* Right Column - Results */}
-      <main className="lg:col-span-8 space-y-4">
-        {/* Context Switcher - Above Results Tabs */}
-        <ContextSwitcher
-          currentContext={currentContext}
-          setCurrentContext={setCurrentContext}
-          buyers={buyers}
-          setBuyers={setBuyers}
-          genericDocuments={genericDocuments}
-          onAddBuyer={() => setShowAddBuyerModal(true)}
-        />
+        {/* Right Column - New Tab Structure */}
+        <main className="lg:col-span-8 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Tab Navigation */}
+            <div className="flex gap-1 p-3 bg-slate-50 border-b border-slate-200 overflow-x-auto">
+              {TABS.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
+                      activeTab === tab.id
+                        ? 'bg-violet-600 text-white shadow-sm'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
 
-        <ResultsTabs
-          activeTab={resultsTab}
-          setActiveTab={setResultsTab}
-          results={results}
-          onCopy={handleCopy}
-          onRefine={handleRefine}
-          isGeneratingFeatures={isGeneratingFeatures}
-          videoData={videoData}
-          secondsPerPhoto={secondsPerPhoto}
-          setSecondsPerPhoto={setSecondsPerPhoto}
-          isGeneratingVideo={isGeneratingVideo}
-          onGenerateVideo={() => handleGenerateVideo(photoUrlsDesc, currentListingIdDesc)}
-          onPreviewVideo={handlePreviewVideo}
-          onDownloadVideo={(url) => handleDownloadVideo(url, currentListingIdDesc)}
-          photoUrlsDesc={photoUrlsDesc}
-          // Buyer mode props
-          isBuyerMode={currentContext !== "Generic"}
-          buyerName={currentContext}
-          buyerDocCount={buyers.find((b) => b.name === currentContext)?.documents?.length || 0}
-        />
-      </main>
-    </div>
+            {/* Tab Content */}
+            <div className="p-5">
+              {activeTab === 'draft' && renderTabContent('draft')}
+              {activeTab === 'review' && renderTabContent('review')}
+              {activeTab === 'summary' && renderTabContent('summary')}
+              {activeTab === 'mls' && renderMLSContent()}
+            </div>
+          </div>
+        </main>
+      </div>
 
-    {/* Name Listing Modal (Credit Gatekeeper) */}
-    <NameListingModal
-      isOpen={showNameModal}
-      onClose={() => setShowNameModal(false)}
-      onSubmit={(addressData) => {
-        // addressData now contains { street, zip_code, attempt_id }
-        handleAddressChangeDesc(addressData);
-        // Pass attempt_id up to parent for potential refund
-        if (setCurrentAttemptId) {
-          setCurrentAttemptId(addressData.attempt_id);
-        }
-        setShowNameModal(false);
-      }}
-      user={user}
-    />
-
-    {/* Add Buyer Modal */}
-    <AddBuyerModal
-      isOpen={showAddBuyerModal}
-      onClose={() => setShowAddBuyerModal(false)}
-      onSave={(name) => {
-        setBuyers([
-          ...buyers,
-          { id: crypto.randomUUID(), name, documents: [] },
-        ]);
-        setShowAddBuyerModal(false);
-      }}
-    />
+      {/* Name Listing Modal (Credit Gatekeeper) */}
+      <NameListingModal
+        isOpen={showNameModal}
+        onClose={() => setShowNameModal(false)}
+        onSubmit={(addressData) => {
+          // addressData now contains { street, zip_code, attempt_id }
+          handleAddressChangeDesc(addressData);
+          // Pass attempt_id up to parent for potential refund
+          if (setCurrentAttemptId) {
+            setCurrentAttemptId(addressData.attempt_id);
+          }
+          setShowNameModal(false);
+        }}
+        user={user}
+      />
     </>
   );
 }

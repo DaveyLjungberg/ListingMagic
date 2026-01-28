@@ -431,6 +431,14 @@ export default function GeneratePage() {
       return;
     }
 
+    // ========================================================================
+    // TESTING MODE: Credit checks disabled until further notice
+    // To re-enable, uncomment the block below and remove this bypass
+    // ========================================================================
+    console.log("[handleGenerateAllDesc] TESTING MODE - No credit check/deduction");
+    toast.success("Testing mode - No credit charged", { duration: 2000, icon: "🧪" });
+
+    /* ORIGINAL CREDIT CHECK CODE - DISABLED FOR TESTING
     // Check credits first (without consuming) - only charge after successful generation
     const balanceResult = await getCreditBalance();
     if (!balanceResult.success || (balanceResult.data?.total_credits ?? 0) === 0) {
@@ -450,25 +458,26 @@ export default function GeneratePage() {
       user_email: user.email,
       attempt_id: currentAttemptId,
     };
-    
+
     let creditResult = await supabase.rpc("check_and_decrement_credits_with_attempt", creditParams);
-    
+
     // Fallback to legacy if function not found
     if (creditResult.error?.code === "PGRST202") {
       console.warn("[handleGenerateAllDesc] Using legacy credit deduction");
       creditResult = await supabase.rpc("check_and_decrement_credits", { user_email: user.email });
     }
-    
+
     if (creditResult.error || !creditResult.data?.success) {
       toast.error(creditResult.error?.message || "Failed to deduct credit");
       return;
     }
-    
+
     const source = creditResult.data.source === "domain" ? "team pool" : "personal balance";
     toast.success(
       `1 Credit Used from ${source} (${creditResult.data.remaining} remaining)`,
       { duration: 4000, icon: "💳" }
     );
+    END OF DISABLED CREDIT CHECK CODE */
 
     // CRITICAL FIX: Create listing IMMEDIATELY after credit deduction
     // This prevents race condition between auto-save and background generation

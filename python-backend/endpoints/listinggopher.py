@@ -141,14 +141,22 @@ Output only the walk-through script - no explanations or meta-commentary."""
 
 async def download_document(url: str) -> bytes:
     """Download document content from URL."""
+    print(f"📥 Downloading document: {url[:80]}...")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
     }
 
-    async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.content
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content = response.content
+            print(f"✅ Downloaded {len(content)} bytes from {url.split('/')[-1].split('?')[0]}")
+            return content
+    except Exception as e:
+        print(f"❌ Download failed for {url[:50]}: {e}")
+        raise
 
 
 def extract_pdf_text(content: bytes) -> str:
@@ -198,28 +206,42 @@ async def extract_text_from_document(url: str) -> Optional[str]:
     """
     try:
         ext = get_file_extension(url)
+        filename = url.split("/")[-1].split("?")[0]
+        print(f"📄 Processing document with extension: '{ext}' from {filename}")
 
         # Image files - handle via vision, not text extraction
         if ext in ("jpg", "jpeg", "png", "webp", "heic", "gif"):
+            print(f"🖼️ Skipping image file (handled via vision): {ext}")
             return None
 
         content = await download_document(url)
 
+        extracted_text = ""
         if ext == "pdf":
-            return extract_pdf_text(content)
+            extracted_text = extract_pdf_text(content)
+            print(f"📑 PDF extracted: {len(extracted_text)} chars")
         elif ext == "docx":
-            return extract_docx_text(content)
+            extracted_text = extract_docx_text(content)
+            print(f"📝 DOCX extracted: {len(extracted_text)} chars")
         elif ext == "doc":
-            # Old .doc format - try to decode as text (limited support)
+            print(f"⚠️ Old .doc format - limited support")
             logger.warning(f"Old .doc format has limited support: {url}")
-            return content.decode("utf-8", errors="ignore")
+            extracted_text = content.decode("utf-8", errors="ignore")
         elif ext == "txt":
-            return content.decode("utf-8", errors="ignore")
+            extracted_text = content.decode("utf-8", errors="ignore")
+            print(f"📃 TXT decoded: {len(extracted_text)} chars")
         else:
-            # Try to decode as text
-            return content.decode("utf-8", errors="ignore")
+            extracted_text = content.decode("utf-8", errors="ignore")
+            print(f"❓ Unknown extension '{ext}' - decoded as text: {len(extracted_text)} chars")
+
+        # Show first 200 chars of extracted content
+        preview = extracted_text[:200].replace('\n', ' ') if extracted_text else "(empty)"
+        print(f"📖 Content preview: {preview}...")
+
+        return extracted_text
 
     except Exception as e:
+        print(f"❌ Text extraction failed for {url[:50]}: {e}")
         logger.error(f"Failed to extract text from {url}: {e}")
         return None
 
@@ -231,14 +253,20 @@ async def process_documents(document_urls: List[str]) -> tuple[str, List[str]]:
     Returns:
         tuple: (combined_text, image_urls)
     """
+    print(f"\n{'='*60}")
+    print(f"🔍 PROCESSING {len(document_urls)} DOCUMENTS")
+    print(f"{'='*60}")
+
     text_parts = []
     image_urls = []
 
-    for url in document_urls:
+    for i, url in enumerate(document_urls):
+        print(f"\n--- Document {i+1}/{len(document_urls)} ---")
         ext = get_file_extension(url)
 
         # Images go to vision
         if ext in ("jpg", "jpeg", "png", "webp", "heic", "gif"):
+            print(f"🖼️ Image detected: {ext} - adding to vision list")
             image_urls.append(url)
             continue
 
@@ -248,8 +276,19 @@ async def process_documents(document_urls: List[str]) -> tuple[str, List[str]]:
             # Add a separator with filename hint
             filename = url.split("/")[-1].split("?")[0]
             text_parts.append(f"--- Document: {filename} ---\n{text}")
+            print(f"✅ Added text from {filename}: {len(text)} chars")
+        else:
+            print(f"⚠️ No text extracted from document {i+1}")
 
     combined_text = "\n\n".join(text_parts)
+
+    print(f"\n{'='*60}")
+    print(f"📊 PROCESSING COMPLETE:")
+    print(f"   - Text documents: {len(text_parts)}")
+    print(f"   - Image documents: {len(image_urls)}")
+    print(f"   - Total text length: {len(combined_text)} chars")
+    print(f"{'='*60}\n")
+
     return combined_text, image_urls
 
 
@@ -268,6 +307,14 @@ async def generate_draft_text(request: DraftTextRequest) -> GenerationResponse:
     """
     start_time = time.time()
 
+    print(f"\n{'#'*60}")
+    print(f"# DRAFT TEXT GENERATION REQUEST")
+    print(f"# User prompt: {request.user_prompt[:100]}...")
+    print(f"# Document URLs: {len(request.document_urls)}")
+    for i, url in enumerate(request.document_urls):
+        print(f"#   {i+1}. {url[:80]}...")
+    print(f"{'#'*60}\n")
+
     try:
         # Process documents - separate text from images
         document_text, image_urls = await process_documents(request.document_urls)
@@ -277,12 +324,17 @@ async def generate_draft_text(request: DraftTextRequest) -> GenerationResponse:
 
         if document_text:
             user_prompt_parts.append(f"\n\n=== DOCUMENT CONTENT ===\n{document_text}")
+            print(f"✅ Document content added to prompt ({len(document_text)} chars)")
+        else:
+            print(f"⚠️ No document text to add to prompt")
 
         if not document_text and not image_urls:
             # No documents provided - just use the prompt
+            print(f"⚠️ No documents provided - using prompt only")
             logger.info("Draft text generation with prompt only (no documents)")
 
         full_user_prompt = "\n".join(user_prompt_parts)
+        print(f"📝 Final prompt length: {len(full_user_prompt)} chars")
 
         # Generate using unified service
         result = await generate_content_with_fallback(

@@ -1353,6 +1353,7 @@ export default function GeneratePage() {
 
             // Listing state
             currentListingIdDesc={descState.currentListingIdDesc}
+            setCurrentListingIdDesc={descState.setCurrentListingIdDesc}
 
             // Compliance state
             complianceReportDesc={descState.complianceReportDesc}

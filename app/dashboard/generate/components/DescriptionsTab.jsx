@@ -84,6 +84,7 @@ export default function DescriptionsTab({
 
   // Listing state
   currentListingIdDesc,
+  setCurrentListingIdDesc,  // Callback to update listing ID when created on-demand
 
   // Compliance state
   complianceReportDesc,
@@ -192,9 +193,54 @@ export default function DescriptionsTab({
   const handleGenerate = async (tab) => {
     if (!tabContent[tab].prompt.trim()) return;
 
+    // === LOGGING: Debug listing ID ===
+    console.log('🔍 handleGenerate called:', {
+      tab,
+      currentListingIdDesc,
+      hasListingId: !!currentListingIdDesc,
+    });
+
     setTabLoading(prev => ({ ...prev, [tab]: true }));
 
     try {
+      // Ensure we have a listing ID before calling API
+      let effectiveListingId = currentListingIdDesc;
+
+      if (!effectiveListingId) {
+        console.log('🔍 No listing ID - creating new listing for ListingGopher...');
+
+        // Create a listing for this session using existing API
+        const createResponse = await fetch('/api/listings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            listing_type: 'listinggopher',
+            property_address: addressDesc?.street || 'ListingGopher Session',
+            property_type: 'single_family',
+            photo_urls: [],
+            ai_cost: 0,
+            generation_time: 0,
+          }),
+        });
+
+        if (createResponse.ok) {
+          const newListing = await createResponse.json();
+          effectiveListingId = newListing.id;
+          console.log('🔍 Created new listing:', effectiveListingId);
+
+          // Notify parent to update state
+          if (typeof setCurrentListingIdDesc === 'function') {
+            setCurrentListingIdDesc(effectiveListingId);
+          }
+        } else {
+          const errorData = await createResponse.json().catch(() => ({}));
+          console.error('🔍 Failed to create listing:', errorData);
+          throw new Error('Failed to create listing for document association');
+        }
+      }
+
+      console.log('🔍 Calling API with listingId:', effectiveListingId);
+
       const endpoint = TAB_ENDPOINTS[tab];
       if (!endpoint) {
         throw new Error('Invalid tab type');
@@ -204,7 +250,7 @@ export default function DescriptionsTab({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          listingId: currentListingIdDesc,
+          listingId: effectiveListingId,
           userPrompt: tabContent[tab].prompt,
         }),
       });
@@ -234,9 +280,51 @@ export default function DescriptionsTab({
   const handleFollowUp = async (tab) => {
     if (!tabContent[tab].followUp.trim()) return;
 
+    // === LOGGING: Debug listing ID for follow-up ===
+    console.log('🔍 handleFollowUp called:', {
+      tab,
+      currentListingIdDesc,
+      hasListingId: !!currentListingIdDesc,
+    });
+
     setTabLoading(prev => ({ ...prev, [tab]: true }));
 
     try {
+      // Ensure we have a listing ID before calling API
+      let effectiveListingId = currentListingIdDesc;
+
+      if (!effectiveListingId) {
+        console.log('🔍 No listing ID for follow-up - creating new listing...');
+
+        // Create a listing for this session
+        const createResponse = await fetch('/api/listings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            listing_type: 'listinggopher',
+            property_address: addressDesc?.street || 'ListingGopher Session',
+            property_type: 'single_family',
+            photo_urls: [],
+            ai_cost: 0,
+            generation_time: 0,
+          }),
+        });
+
+        if (createResponse.ok) {
+          const newListing = await createResponse.json();
+          effectiveListingId = newListing.id;
+          console.log('🔍 Created new listing for follow-up:', effectiveListingId);
+
+          if (typeof setCurrentListingIdDesc === 'function') {
+            setCurrentListingIdDesc(effectiveListingId);
+          }
+        } else {
+          throw new Error('Failed to create listing for document association');
+        }
+      }
+
+      console.log('🔍 Calling follow-up API with listingId:', effectiveListingId);
+
       const endpoint = TAB_ENDPOINTS[tab];
       if (!endpoint) {
         throw new Error('Invalid tab type');
@@ -249,7 +337,7 @@ export default function DescriptionsTab({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          listingId: currentListingIdDesc,
+          listingId: effectiveListingId,
           userPrompt: combinedPrompt,
         }),
       });

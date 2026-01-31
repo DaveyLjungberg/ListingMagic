@@ -3,6 +3,7 @@
 import { useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { UploadCloud, FileText, Image, X, Loader2 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
+import toast from "react-hot-toast";
 
 // Accepted file types
 const ACCEPTED_TYPES = {
@@ -111,7 +112,11 @@ const DocumentUploader = forwardRef(({
    */
   const uploadDocument = useCallback(async (doc) => {
     if (!listingId || !userId) {
-      console.error("Missing listingId or userId for upload");
+      console.error("Missing listingId or userId for upload", { listingId, userId });
+      toast.error("Please enter a prompt and generate first, then upload documents", {
+        duration: 5000,
+        icon: "📄",
+      });
       return null;
     }
 

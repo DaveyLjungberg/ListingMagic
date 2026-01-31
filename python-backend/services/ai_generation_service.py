@@ -228,6 +228,17 @@ async def _generate_with_openai(
     if not settings.openai_api_key:
         raise InfrastructureError("OpenAI API key not configured")
 
+    # === DEBUG: Log actual prompt received ===
+    print(f"\n{'*'*60}")
+    print(f"* OPENAI REQUEST DEBUG")
+    print(f"* System prompt length: {len(system_prompt)} chars")
+    print(f"* User prompt length: {len(user_prompt)} chars")
+    print(f"* Photo URLs: {len(photo_urls)}")
+    print(f"* User prompt preview: {user_prompt[:500]}...")
+    if len(user_prompt) > 500:
+        print(f"* User prompt end: ...{user_prompt[-200:]}")
+    print(f"{'*'*60}\n")
+
     client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     # Build content parts for the user message
@@ -403,6 +414,16 @@ async def generate_content_with_fallback(
         4. If both fail -> raise the last error
     """
     start_time = time.time()
+
+    # === DEBUG: Log what we received ===
+    print(f"\n{'@'*60}")
+    print(f"@ GENERATE_CONTENT_WITH_FALLBACK CALLED")
+    print(f"@ Task type: {task_type}")
+    print(f"@ System prompt length: {len(system_prompt)} chars")
+    print(f"@ User prompt length: {len(user_prompt)} chars")
+    print(f"@ Contains 'DOCUMENT CONTENT': {'DOCUMENT CONTENT' in user_prompt}")
+    print(f"@ Photo URLs: {len(photo_urls)}")
+    print(f"{'@'*60}\n")
 
     logger.info(f"[AIGeneration] Starting {task_type} generation with {len(photo_urls)} photos")
 

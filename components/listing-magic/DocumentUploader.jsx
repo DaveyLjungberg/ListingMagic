@@ -112,13 +112,15 @@ const DocumentUploader = forwardRef(({
    */
   const uploadDocument = useCallback(async (doc) => {
     if (!listingId || !userId) {
-      console.error("Missing listingId or userId for upload", { listingId, userId });
-      toast.error("Please enter a prompt and generate first, then upload documents", {
+      console.error("❌ Missing listingId or userId for upload", { listingId, userId });
+      toast.error("Please wait for the page to fully load before uploading.", {
         duration: 5000,
         icon: "📄",
       });
       return null;
     }
+
+    console.log('📤 Uploading document with listing ID:', listingId);
 
     const supabase = getSupabaseClient();
     const timestamp = Date.now();

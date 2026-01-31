@@ -74,6 +74,57 @@ export default function GeneratePage() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // =========================================================================
+  // SHARED LISTING ID STATE (for ListingGopher)
+  // =========================================================================
+  const [sharedListingId, setSharedListingId] = useState(null);
+
+  // Initialize listing ID on page load (for ListingGopher document uploads)
+  useEffect(() => {
+    const initializeListing = async () => {
+      // Check sessionStorage for existing listing
+      const sessionListingId = sessionStorage.getItem('listinggopher_listing_id');
+
+      if (sessionListingId) {
+        console.log('✅ Restored listing ID from session:', sessionListingId);
+        setSharedListingId(sessionListingId);
+        return;
+      }
+
+      // Create a new listing for this session
+      try {
+        const response = await fetch('/api/listings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            listing_type: 'listinggopher',
+            property_address: 'ListingGopher Session',
+            property_type: 'single_family',
+            photo_urls: [],
+            ai_cost: 0,
+            generation_time: 0,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const newId = data.id;
+          setSharedListingId(newId);
+          sessionStorage.setItem('listinggopher_listing_id', newId);
+          console.log('✅ Created shared listing ID:', newId);
+        } else {
+          console.error('Failed to create listing:', await response.text());
+        }
+      } catch (error) {
+        console.error('Error creating listing:', error);
+      }
+    };
+
+    if (user?.id) {
+      initializeListing();
+    }
+  }, [user?.id]);
+
   // Check if user needs onboarding (no source set)
   useEffect(() => {
     const checkOnboarding = async () => {
@@ -1351,9 +1402,9 @@ export default function GeneratePage() {
             expandedSections={descState.expandedSections}
             setExpandedSections={descState.setExpandedSections}
 
-            // Listing state
-            currentListingIdDesc={descState.currentListingIdDesc}
-            setCurrentListingIdDesc={descState.setCurrentListingIdDesc}
+            // Listing state (shared for ListingGopher)
+            currentListingIdDesc={sharedListingId}
+            setCurrentListingIdDesc={setSharedListingId}
 
             // Compliance state
             complianceReportDesc={descState.complianceReportDesc}

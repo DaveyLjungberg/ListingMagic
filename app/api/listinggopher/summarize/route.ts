@@ -87,9 +87,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // === LOGGING: API Called ===
+    console.log('=== SUMMARIZE API CALLED ===');
+    console.log('User ID:', user.id);
+    console.log('User Email:', user.email);
+
     // 2. Parse request body
     const body: RequestBody = await request.json();
     const { listingId, userPrompt } = body;
+
+    // === LOGGING: Request body ===
+    console.log('Request body:', { listingId, userPrompt: userPrompt?.substring(0, 100) });
 
     if (!userPrompt?.trim()) {
       return NextResponse.json(
@@ -106,7 +114,7 @@ export async function POST(request: NextRequest) {
     if (listingId) {
       const { data: documents, error: docsError } = await client
         .from("documents")
-        .select("file_url, file_name, file_type")
+        .select("id, file_url, file_name, file_type")
         .eq("listing_id", listingId)
         .eq("user_id", user.id);
 
@@ -117,6 +125,17 @@ export async function POST(request: NextRequest) {
       } else {
         documentUrls = documents?.map((doc: { file_url: string }) => doc.file_url) || [];
       }
+
+      // === LOGGING: Documents from database ===
+      console.log('Documents from database:', {
+        listingId,
+        count: documents?.length || 0,
+        documents: documents?.map((d: { id: string; file_name: string; file_url: string }) => ({
+          id: d.id,
+          file_name: d.file_name,
+          file_url: d.file_url?.substring(0, 80) + '...'
+        }))
+      });
     }
 
     // For summarization, we need documents to summarize
@@ -128,6 +147,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Call Python backend
+    // === LOGGING: Before calling Python backend ===
+    console.log('Calling Python backend:', {
+      endpoint: `${BACKEND_URL}/generate/summarize`,
+      documentUrlsCount: documentUrls.length,
+      documentUrls: documentUrls.map(u => u.substring(0, 80) + '...'),
+      userPrompt: userPrompt?.substring(0, 100)
+    });
+
     let backendResponse;
     try {
       backendResponse = await fetch(`${BACKEND_URL}/generate/summarize`, {
@@ -165,8 +192,25 @@ export async function POST(request: NextRequest) {
 
     const result = await backendResponse.json();
 
+    // === LOGGING: Python backend response ===
+    console.log('Python backend response:', {
+      success: backendResponse.ok,
+      status: backendResponse.status,
+      hasGeneratedText: !!(result.generated_text || result.text),
+      textLength: (result.generated_text || result.text || '').length
+    });
+
     // 5. Save to generated_content table
     if (listingId) {
+      // === LOGGING: Before saving to generated_content ===
+      console.log('Saving to generated_content:', {
+        listing_id: listingId,
+        user_id: user.id,
+        tab_type: 'summarize',
+        has_content: !!(result.generated_text || result.text),
+        content_length: (result.generated_text || result.text || '').length
+      });
+
       const { error: insertError } = await client.from("generated_content").insert({
         listing_id: listingId,
         user_id: user.id,

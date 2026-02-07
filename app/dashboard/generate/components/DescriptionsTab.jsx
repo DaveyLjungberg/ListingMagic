@@ -612,7 +612,7 @@ export default function DescriptionsTab({
                     onClick={() => setActiveTab(tab.id)}
                     className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-colors ${
                       activeTab === tab.id
-                        ? 'bg-violet-600 text-white shadow-sm'
+                        ? tab.id === 'draft' ? 'bg-blue-800 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm'
                         : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
                     }`}
                   >
